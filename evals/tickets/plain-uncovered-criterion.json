@@ -1,0 +1,129 @@
+{
+  "id": "plain-uncovered-criterion",
+  "why": "Test cases exist, but none covers AC-4. Plain code refuses this without asking a model.",
+  "repository": "acme/api",
+  "task": {
+    "summary": "Make POST /signup reject a missing, empty or whitespace-only username with a 422 response and a machine-readable error, instead of creating an account with a blank username.",
+    "story": {
+      "role": "a support agent investigating accounts that cannot be found by name",
+      "want": "signup to refuse blank usernames",
+      "benefit": "no more accounts are created that nobody can search for or sign in to"
+    },
+    "repository": "acme/api",
+    "impactedAreas": [
+      {
+        "area": "Web signup form",
+        "impact": "Receives a new 422 error with code \"username_required\". It already shows the message field of 422 errors, so no change is needed, but the web team should confirm the wording."
+      },
+      {
+        "area": "Mobile app (iOS and Android)",
+        "impact": "Same new error. Versions before 4.2 show a generic failure for unknown error codes, which is acceptable."
+      },
+      {
+        "area": "Existing accounts with blank usernames",
+        "impact": "Not changed by this task. Cleaning them up is separate work."
+      }
+    ],
+    "goal": "Validate the username in the signup handler before any database write, and return a consistent error for blank values.",
+    "acceptance": [
+      {
+        "id": "AC-1",
+        "behavior": "A username that is missing, null, an empty string, or only whitespace is rejected with HTTP 422 and the JSON body {\"error\": {\"code\": \"username_required\", \"message\": \"Enter a username.\"}}.",
+        "gherkin": "Given a signup request whose JSON body has username \"   \" and a valid email and password\nWhen it is sent to POST /signup\nThen the response status is 422\nAnd the response body is {\"error\": {\"code\": \"username_required\", \"message\": \"Enter a username.\"}}",
+        "evidence": "handler test"
+      },
+      {
+        "id": "AC-2",
+        "behavior": "When the username is rejected, no row is inserted into the users table and no welcome email is queued.",
+        "gherkin": "Given a signup request with username \"\"\nWhen it is sent to POST /signup\nThen the users table has the same number of rows as before\nAnd the email queue has no new job",
+        "evidence": "handler test with the test database and the in-memory queue"
+      },
+      {
+        "id": "AC-3",
+        "behavior": "A valid username is trimmed of leading and trailing whitespace and signup otherwise behaves exactly as it does today.",
+        "gherkin": "Given a signup request with username \"  ada  \" and a valid email and password\nWhen it is sent to POST /signup\nThen the response status is 201\nAnd the created user's username is \"ada\"",
+        "evidence": "handler test"
+      },
+      {
+        "id": "AC-4",
+        "behavior": "The username check runs before the existing email and password checks, so a request with a blank username and an invalid email reports only username_required.",
+        "gherkin": "Given a signup request with username \"\" and email \"not-an-email\"\nWhen it is sent to POST /signup\nThen the response status is 422\nAnd the error code is \"username_required\"",
+        "evidence": "handler test"
+      }
+    ],
+    "testCases": [
+      {
+        "id": "T-1",
+        "description": "POST /signup with username omitted, null, \"\", \"   \" and \"\\t\\n\" each returns 422 with exactly the username_required body.",
+        "covers": [
+          "AC-1"
+        ]
+      },
+      {
+        "id": "T-2",
+        "description": "After each rejected request in T-1, the users table row count is unchanged and the in-memory email queue is empty.",
+        "covers": [
+          "AC-2"
+        ]
+      },
+      {
+        "id": "T-3",
+        "description": "POST /signup with username \"  ada  \" returns 201 and stores \"ada\"; the existing happy-path signup test still passes unmodified.",
+        "covers": [
+          "AC-3"
+        ]
+      },
+      {
+        "id": "T-5",
+        "description": "POST /signup with a non-string username, the number 5, returns 422 with code username_required.",
+        "covers": [
+          "AC-1"
+        ]
+      }
+    ],
+    "scenarios": {
+      "omitted": "Hidden scenarios are not implemented yet."
+    },
+    "nonGoals": [
+      "Rules about which characters a username may contain, or its length",
+      "Uniqueness checks, which already exist",
+      "Fixing accounts already created with blank usernames",
+      "Changing the error format of other endpoints"
+    ],
+    "scope": {
+      "components": [
+        "signup handler"
+      ],
+      "permitted": [
+        "src/handlers/signup.js",
+        "test/handlers/signup.test.js"
+      ],
+      "forbidden": [
+        "src/db/**",
+        "src/handlers/login.js",
+        "migrations/**"
+      ]
+    },
+    "risk": {
+      "level": "medium",
+      "concerns": [
+        "Public endpoint behaviour changes for clients sending blank usernames"
+      ]
+    },
+    "context": [
+      "src/handlers/signup.js",
+      "test/handlers/signup.test.js",
+      "src/errors.js"
+    ],
+    "reuse": [
+      "The validationError(code, message) helper in src/errors.js, which already produces the 422 error shape used by the email and password checks"
+    ],
+    "approach": "Add the check at the top of the handler, before the existing validation, using the existing validationError helper."
+  },
+  "expect": {
+    "outcome": "fail",
+    "weakAreas": [
+      "testCases"
+    ]
+  }
+}

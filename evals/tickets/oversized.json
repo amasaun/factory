@@ -1,0 +1,131 @@
+{
+  "id": "oversized",
+  "why": "Five separate features, a database migration and an admin page in one task, with the whole source tree in scope. Several criteria leave the essentials open: how long links last, what the rate limit is, what \"recent\" means. It should be split, and the rubric asks whether a task is small enough for one piece of work.",
+  "repository": "acme/api",
+  "task": {
+    "summary": "Overhaul signup: validate usernames, add email verification with expiring links, rate-limit signups per IP, add an admin page listing recent signups, and migrate the users table to add verified_at and signup_ip.",
+    "story": {
+      "role": "a support agent investigating accounts that cannot be found by name",
+      "want": "signup to refuse blank usernames",
+      "benefit": "no more accounts are created that nobody can search for or sign in to"
+    },
+    "repository": "acme/api",
+    "impactedAreas": [
+      {
+        "area": "Web signup form",
+        "impact": "Receives a new 422 error with code \"username_required\". It already shows the message field of 422 errors, so no change is needed, but the web team should confirm the wording."
+      },
+      {
+        "area": "Mobile app (iOS and Android)",
+        "impact": "Same new error. Versions before 4.2 show a generic failure for unknown error codes, which is acceptable."
+      },
+      {
+        "area": "Existing accounts with blank usernames",
+        "impact": "Not changed by this task. Cleaning them up is separate work."
+      }
+    ],
+    "goal": "Modernise the whole signup flow.",
+    "acceptance": [
+      {
+        "id": "AC-1",
+        "behavior": "Blank usernames are rejected with 422 username_required.",
+        "gherkin": "Given a signup request with username \"\"\nWhen it is sent to POST /signup\nThen the response status is 422 and the error code is \"username_required\"",
+        "evidence": "handler test"
+      },
+      {
+        "id": "AC-2",
+        "behavior": "New users must verify their email before signing in.",
+        "gherkin": "Given a newly signed-up user\nWhen they try to sign in before clicking the link in the verification email\nThen sign-in is refused",
+        "evidence": "integration test"
+      },
+      {
+        "id": "AC-3",
+        "behavior": "Signups are rate limited.",
+        "gherkin": "Given many signups from one IP address\nWhen the limit is exceeded\nThen further signups are refused for a while",
+        "evidence": "integration test"
+      },
+      {
+        "id": "AC-4",
+        "behavior": "Admins can see recent signups.",
+        "gherkin": "Given an admin user\nWhen they open the signups page\nThen they see recent signups",
+        "evidence": "manual check"
+      }
+    ],
+    "testCases": [
+      {
+        "id": "T-1",
+        "description": "POST /signup with username \"\" returns 422 username_required.",
+        "covers": [
+          "AC-1"
+        ]
+      },
+      {
+        "id": "T-2",
+        "description": "A user who has not verified cannot sign in; after verifying they can.",
+        "covers": [
+          "AC-2"
+        ]
+      },
+      {
+        "id": "T-3",
+        "description": "The eleventh signup from one IP in a minute is refused.",
+        "covers": [
+          "AC-3"
+        ]
+      },
+      {
+        "id": "T-4",
+        "description": "The admin page lists the last signups.",
+        "covers": [
+          "AC-4"
+        ]
+      }
+    ],
+    "scenarios": {
+      "omitted": "Hidden scenarios are not implemented yet."
+    },
+    "nonGoals": [
+      "Rules about which characters a username may contain, or its length",
+      "Uniqueness checks, which already exist",
+      "Fixing accounts already created with blank usernames",
+      "Changing the error format of other endpoints"
+    ],
+    "scope": {
+      "components": [
+        "signup",
+        "login",
+        "email",
+        "admin",
+        "database"
+      ],
+      "permitted": [
+        "src/**",
+        "test/**",
+        "migrations/**"
+      ],
+      "forbidden": []
+    },
+    "risk": {
+      "level": "high",
+      "concerns": [
+        "Touches authentication and a database migration"
+      ]
+    },
+    "context": [
+      "src/handlers/signup.js",
+      "test/handlers/signup.test.js",
+      "src/errors.js"
+    ],
+    "reuse": [
+      "The validationError(code, message) helper in src/errors.js, which already produces the 422 error shape used by the email and password checks"
+    ],
+    "approach": "Add the check at the top of the handler, before the existing validation, using the existing validationError helper."
+  },
+  "expect": {
+    "outcome": "fail",
+    "weakAreas": [
+      "readiness",
+      "repository"
+    ]
+  }
+}

@@ -1,0 +1,86 @@
+{
+  "id": "hidden-impact",
+  "why": "The ticket changes the shape of a public response, and its own context lists a web client and a mobile client that read the old shape, yet it claims no other area is affected and calls the risk low. Both clients would break on release. An empty impact list is only acceptable when the change is plainly self-contained.",
+  "repository": "acme/api",
+  "task": {
+    "summary": "Change the POST /signup success response from a bare user object to an envelope, {\"data\": {...user}}, to match the newer endpoints.",
+    "story": {
+      "role": "a support agent investigating accounts that cannot be found by name",
+      "want": "signup to refuse blank usernames",
+      "benefit": "no more accounts are created that nobody can search for or sign in to"
+    },
+    "repository": "acme/api",
+    "impactedAreas": [],
+    "goal": "Wrap the signup success response in a data envelope.",
+    "acceptance": [
+      {
+        "id": "AC-1",
+        "behavior": "A successful signup returns 201 with the body {\"data\": user}, where user has the same fields as today.",
+        "gherkin": "Given a valid signup request\nWhen it is sent to POST /signup\nThen the response status is 201\nAnd the body is {\"data\": {\"id\": <new id>, \"username\": \"ada\", \"email\": \"ada@example.com\"}}",
+        "evidence": "handler test"
+      },
+      {
+        "id": "AC-2",
+        "behavior": "Error responses are unchanged.",
+        "gherkin": "Given a signup request with an invalid email\nWhen it is sent to POST /signup\nThen the response is the same 422 body as before the change",
+        "evidence": "handler test"
+      }
+    ],
+    "testCases": [
+      {
+        "id": "T-1",
+        "description": "POST /signup with a valid body returns 201 and a body whose only top-level key is data, containing id, username and email.",
+        "covers": [
+          "AC-1"
+        ]
+      },
+      {
+        "id": "T-2",
+        "description": "POST /signup with email \"not-an-email\" returns the existing 422 body byte for byte.",
+        "covers": [
+          "AC-2"
+        ]
+      }
+    ],
+    "scenarios": {
+      "omitted": "Hidden scenarios are not implemented yet."
+    },
+    "nonGoals": [
+      "Changing other endpoints"
+    ],
+    "scope": {
+      "components": [
+        "signup handler"
+      ],
+      "permitted": [
+        "src/handlers/signup.js",
+        "test/handlers/signup.test.js"
+      ],
+      "forbidden": [
+        "src/db/**",
+        "src/handlers/login.js",
+        "migrations/**"
+      ]
+    },
+    "risk": {
+      "level": "low",
+      "concerns": []
+    },
+    "context": [
+      "src/handlers/signup.js",
+      "test/handlers/signup.test.js",
+      "clients/web/src/api/signup.ts (reads response.id directly)",
+      "clients/mobile/Signup.swift (decodes the bare user object)"
+    ],
+    "reuse": [
+      "The validationError(code, message) helper in src/errors.js, which already produces the 422 error shape used by the email and password checks"
+    ],
+    "approach": "Add the check at the top of the handler, before the existing validation, using the existing validationError helper."
+  },
+  "expect": {
+    "outcome": "fail",
+    "weakAreas": [
+      "impact"
+    ]
+  }
+}

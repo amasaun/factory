@@ -1,0 +1,112 @@
+{
+  "id": "plain-criterion-without-scenario",
+  "why": "One acceptance criterion has no Given / When / Then. Plain code refuses this without asking a model.",
+  "repository": "acme/textkit",
+  "task": {
+    "summary": "Fix slugify so accented Latin letters are converted to their plain equivalents instead of being dropped. Today slugify(\"Crème Brûlée\") returns \"cr-me-br-l-e\"; it should return \"creme-brulee\".",
+    "story": {
+      "role": "a content editor publishing articles with French and Spanish titles",
+      "want": "article URLs to keep the letters of the title, without their accents",
+      "benefit": "links stay readable and do not break words apart at every accented letter"
+    },
+    "repository": "acme/textkit",
+    "impactedAreas": [
+      {
+        "area": "Existing URLs generated from accented titles",
+        "impact": "Slugs for titles containing accented letters will change the next time they are generated. Slugs already stored are not rewritten by this change; the web team should be told so they can decide whether to add redirects."
+      },
+      {
+        "area": "Search indexing job (uses slugify for document ids)",
+        "impact": "New documents with accented titles get different ids than before. Titles without accents are unaffected."
+      }
+    ],
+    "goal": "Make slugify transliterate accented Latin letters by removing combining marks after Unicode NFD normalisation, so words stay intact.",
+    "acceptance": [
+      {
+        "id": "AC-1",
+        "behavior": "Accented Latin letters are converted to the unaccented letter before slugging.",
+        "gherkin": "Given the text \"Crème Brûlée\"\nWhen slugify is called with it\nThen the result is \"creme-brulee\"\nAnd given the text \"Señor Ñandú\"\nWhen slugify is called with it\nThen the result is \"senor-nandu\"",
+        "evidence": "regression test that fails on the current code"
+      },
+      {
+        "id": "AC-2",
+        "behavior": "Text without accented letters produces exactly the same slug as before the change.",
+        "evidence": "the existing tests in test/slugify.test.js pass unmodified"
+      },
+      {
+        "id": "AC-3",
+        "behavior": "Characters that have no plain Latin equivalent after normalisation are still treated as separators, as today. Letters such as \"ø\" and \"ß\", which do not decompose under NFD, are out of scope and keep today's behaviour.",
+        "gherkin": "Given the text \"日本語 title\"\nWhen slugify is called with it\nThen the result is \"title\"\nAnd given the text \"Straße\"\nWhen slugify is called with it\nThen the result is \"stra-e\"",
+        "evidence": "unit test"
+      }
+    ],
+    "testCases": [
+      {
+        "id": "T-1",
+        "description": "slugify(\"Crème Brûlée\") returns \"creme-brulee\" and slugify(\"Señor Ñandú\") returns \"senor-nandu\". Both fail on the code before the fix.",
+        "covers": [
+          "AC-1"
+        ]
+      },
+      {
+        "id": "T-2",
+        "description": "A letter supplied already decomposed, \"e\" followed by U+0301, gives the same slug as the precomposed \"é\": slugify(\"cafe\\u0301\") returns \"cafe\".",
+        "covers": [
+          "AC-1"
+        ]
+      },
+      {
+        "id": "T-3",
+        "description": "The three existing tests in test/slugify.test.js are left unchanged and still pass.",
+        "covers": [
+          "AC-2"
+        ]
+      },
+      {
+        "id": "T-4",
+        "description": "slugify(\"日本語 title\") returns \"title\"; slugify(\"Straße\") returns \"stra-e\"; slugify(\"!!!\") still returns \"\".",
+        "covers": [
+          "AC-3"
+        ]
+      }
+    ],
+    "scenarios": {
+      "omitted": "Hidden scenarios are not implemented yet."
+    },
+    "nonGoals": [
+      "Transliterating non-Latin scripts",
+      "Special-casing letters that do not decompose, such as ø, ß or æ",
+      "Rewriting slugs that are already stored anywhere",
+      "Changing the separator or the lower-casing rule"
+    ],
+    "scope": {
+      "components": [
+        "text utilities"
+      ],
+      "permitted": [
+        "src/slugify.js",
+        "test/slugify.test.js"
+      ],
+      "forbidden": [
+        "src/index.js"
+      ]
+    },
+    "risk": {
+      "level": "medium",
+      "concerns": [
+        "Slugs for accented titles change, which can change URLs and document ids generated after the release"
+      ]
+    },
+    "context": [
+      "src/slugify.js",
+      "test/slugify.test.js"
+    ],
+    "approach": "Normalise with String.prototype.normalize(\"NFD\") and strip the combining marks in the range U+0300 to U+036F before the existing replace steps. Add tests to the existing test file; do not remove or change the tests already there."
+  },
+  "expect": {
+    "outcome": "fail",
+    "weakAreas": [
+      "acceptance"
+    ]
+  }
+}
