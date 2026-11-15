@@ -48,6 +48,21 @@ export function judgePrompt(template: string, task: Task, diff: string, nonce: s
   return head.replace("{{DIFF}}", () => diff);
 }
 
+/** Added to the builder's prompt when it takes over from a builder that was stopped for using too much context. */
+export function handoffSection(handoff: number, workingTreeStatus: string): string {
+  return [
+    "",
+    `## You are taking over from another agent (handoff ${handoff})`,
+    "",
+    "A previous agent was working on this task and was stopped because its working context had grown too large. Its changes so far are in the working tree, uncommitted. They may be incomplete or partly wrong. Do not start over: read the changed files listed below, work out what is done and what is missing against the acceptance criteria, then finish the task and make the test commands pass. Work efficiently and read only what you need.",
+    "",
+    "Files changed so far:",
+    "",
+    fenced(clipFeedback(workingTreeStatus) || "(no changes yet)"),
+    "",
+  ].join("\n");
+}
+
 /** Permission rules that let the builder run exactly the configured test commands. */
 export function allowedBashRules(testCommands: string[][]): string[] {
   return testCommands.flatMap((c) => [`Bash(${c.join(" ")})`, `Bash(${c.join(" ")} *)`]);

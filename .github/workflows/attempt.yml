@@ -118,17 +118,11 @@ jobs:
       - run: node "$FACTORY_ROOT/src/cli.ts" builder-prompt
       - run: npm install -g @anthropic-ai/claude-code@latest
       - name: Build
-        working-directory: repo
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           MODEL: ${{ inputs.builder_model }}
         run: |
-          mapfile -t RULES < "$FACTORY_OUT/builder-allowed.txt"
-          claude -p --safe-mode --permission-mode acceptEdits --permission-prompts none \
-            --tools "Read,Edit,Write,Glob,Grep,Bash" \
-            --allowedTools "Read" "Edit" "Write" "Glob" "Grep" "${RULES[@]}" \
-            --model "$MODEL" --max-turns 40 --no-session-persistence --output-format json \
-            < "$FACTORY_OUT/builder-prompt.md" > "$FACTORY_OUT/builder-result.json" || status=$?
+          node "$FACTORY_ROOT/src/cli.ts" build || status=$?
           node "$FACTORY_ROOT/src/cli.ts" show-result builder-result.json
           exit "${status:-0}"
       - name: Bundle the working tree as one commit
