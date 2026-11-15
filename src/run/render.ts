@@ -128,7 +128,7 @@ export function pullRequestBody(e: {
       ? "- Accepted on the first attempt."
       : `- Accepted on attempt ${e.attempt}. Earlier attempts were sent back to the builder; the task issue's event log records why.`,
     "",
-    "Not performed in this pipeline version: hidden acceptance scenarios, mutation testing, the revert-the-fix check, secret scanning, and network isolation of workers. CI does not start automatically on this pull request because it was opened with the workflow's own token.",
+    "Not performed in this pipeline version: hidden acceptance scenarios, mutation testing, the revert-the-fix check, secret scanning, and network isolation of workers. CI on this pull request waits for a person, because it was opened with the workflow's own token: close and reopen the pull request to start it.",
     "",
     "## Findings",
     "",

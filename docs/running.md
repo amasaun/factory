@@ -62,6 +62,8 @@ This describes the current pipeline version. It takes one approved task issue an
 1. Open an issue whose body contains a task block: the marker `<!-- factory-task:v1 -->` followed directly by one fenced `json` block holding the task contract (`schemas/task.schema.json`).
 2. From the Actions tab, start the `factory` workflow on the default branch and give it the issue number.
 
+The [Claude Code plugin](plugin.md) does the setup above with `/factory:init`, writes task issues with `/factory:spec`, and shows runs across repositories with `/factory:status`.
+
 Starting the workflow is the approval. Only a login listed under `approvers` may do it, and the task text is fixed at that moment: the run records its digest, and later edits to the issue do not affect the run.
 
 ## What a run does
@@ -142,7 +144,7 @@ On `main`, the factory's workflows refer to each other at `@main`. `scripts/rele
 - **The builder's model credential** is on the same machine as the code the builder writes and the tests it runs.
 - **Workers have unrestricted outbound network access.**
 - **No hidden scenarios, mutation testing, revert-the-fix check or secret scanning.** Verification is the repository's own tests plus the judge.
-- **CI does not start on the pull request**, because pull requests opened with the workflow's own token do not trigger workflows. The run therefore ends in `ci-pending`.
+- **CI on the factory's pull request waits for a person.** GitHub holds workflow runs caused by the workflow's own token. Closing and reopening the pull request starts CI under your account. The run's event log therefore ends in `ci-pending`; a dedicated GitHub App would let CI start by itself.
 - **Repair is bounded and simple.** At most two repair rounds, the same builder model every time, and no escalation to a stronger model.
 - **One run per task issue.** A second run on the same issue is refused.
 - **Models are named by alias** (`sonnet` for the builder, `opus` for the judge), not pinned versions. The pull request records which model actually ran.

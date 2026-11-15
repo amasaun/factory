@@ -26,7 +26,17 @@ Early. A first pipeline exists that takes one approved task issue to a draft pul
 | Repair loop: a failed attempt goes back to the builder with the reasons (spec §9, §13) | Implemented; every sequence of attempt outcomes is tested against the state machine, and the repair path has been exercised locally but not yet on GitHub |
 | Context handoff: a builder that passes its context limit is stopped and a fresh one continues | Implemented; tested against a stand-in for the model CLI, not yet triggered on a real run |
 | Either model credential (API key or subscription token), per-session spending caps, model usage in the pull request, numbered releases | Implemented; the spending cap and credential handling are checked locally, the rest by tests |
-| Resume, hidden scenarios, mutation gates, CI observation, review feedback, plugin | Not started |
+| Claude Code plugin: `/factory:init`, `/factory:spec`, `/factory:run`, `/factory:status` ([docs/plugin.md](docs/plugin.md)) | Implemented; the helpers are tested and status has been run against a real repository, the commands themselves have not yet been used in a Claude Code session |
+| Resume, hidden scenarios, mutation gates, CI observation, review feedback | Not started |
+
+## Use it from Claude Code
+
+```
+/plugin marketplace add amasaun/factory
+/plugin install factory@amasaun-factory
+```
+
+Then `/factory:init` in a repository to set it up, `/factory:spec` to write a task, and `/factory:status` to see every run. See [docs/plugin.md](docs/plugin.md).
 
 ## Layout
 
@@ -54,6 +64,10 @@ src/run/
   usage.ts              model usage for the pull request
 scripts/release.sh      create a numbered release
 src/cli.ts              entry points for the pipeline's jobs
+src/plugin-cli.ts       helpers behind the plugin's commands
+src/plugin/             GitHub access through gh, status across repositories, setup files
+skills/                 the plugin's commands
+.claude-plugin/         plugin and marketplace manifests
 prompts/                builder and judge prompts
 actions/setup/          makes the factory's code available to a job
 src/publisher/
