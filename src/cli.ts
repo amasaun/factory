@@ -6,7 +6,8 @@
  */
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { digest } from "./control/digest.ts";
@@ -21,6 +22,7 @@ import { git } from "./publisher/git.ts";
 import { ensurePullRequest, pushCandidate } from "./publisher/publish.ts";
 import { runBuilder } from "./run/builder.ts";
 import { MAX_HANDOFFS, type RepoConfig, parseConfig } from "./run/config.ts";
+import { EVALUATION_SCHEMA, evaluateTicket, evaluationComment, evaluationPrompt, failsWithoutModel } from "./run/evaluate.ts";
 import { type Attempt, type StageResult, admissionEvents, planEvents } from "./run/plan.ts";
 import { allowedBashRules, builderPrompt, clipFeedback, handoffSection, judgePrompt, pullRequestBody, pullRequestTitle } from "./run/render.ts";
 import { type SessionUsage, readUsage, usageSection } from "./run/usage.ts";
@@ -69,7 +71,12 @@ interface Admitted {
   taskDigest: string;
   policyDigest: string;
   base: string;
+  /** Average score from the ticket evaluation. */
+  ticketScore?: number;
 }
+
+/** Labels the factory puts on a task issue to show where it stands. */
+const STATUS_LABELS = { inProgress: "factory:in-progress", review: "factory:review", attention: "factory:needs-attention" } as const;
 const readAdmitted = (): Admitted => JSON.parse(readFileSync(art("task", "task.json"), "utf8"));
 
 /** Policy is always read from a named commit, never from the working tree a worker may have changed. */
@@ -78,7 +85,7 @@ function configAt(repoDir: string, commit: string): RepoConfig {
 }
 
 function github(): { gh: GitHub; ledger: GitHubLedger } {
-  const gh = new GitHub({ token: env("GITHUB_TOKEN"), repo: env("GITHUB_REPOSITORY") });
+  const gh = new GitHub({ token: env("GITHUB_TOKEN"), repo: env("GITHUB_REPOSITORY"), apiUrl: process.env.GITHUB_API_URL || undefined });
   return { gh, ledger: new GitHubLedger(gh, env("FACTORY_APP_LOGIN")) };
 }
 
@@ -92,38 +99,97 @@ const commands: Record<string, () => Promise<void> | void> = {
   async admit() {
     const repoDir = env("FACTORY_REPO_DIR");
     const issueNumber = Number(env("FACTORY_ISSUE"));
+    if (!Number.isInteger(issueNumber) || issueNumber < 1) throw new Error("the issue number is not valid");
     const actor = env("FACTORY_ACTOR");
     const defaultBranch = env("FACTORY_DEFAULT_BRANCH");
+    const runUrl = env("FACTORY_RUN_URL");
+    const repository = env("GITHUB_REPOSITORY");
     if (env("GITHUB_REF") !== `refs/heads/${defaultBranch}`) {
       throw new Error(`runs must be started from ${defaultBranch}, not ${env("GITHUB_REF")}`);
     }
     const base = git(repoDir, ["rev-parse", "HEAD"]).trim();
     const config = configAt(repoDir, base);
     if (config.baseBranch !== defaultBranch) throw new Error(`policy base branch ${config.baseBranch} is not ${defaultBranch}`);
-    if (!config.approvers.includes(actor)) throw new Error(`${actor} is not an approver for this repository`);
 
     const { gh, ledger } = github();
+    // Nothing has been recorded yet, so a refusal leaves the ticket free to be fixed and started again.
+    const refuse = async (reason: string, detail = ""): Promise<never> => {
+      await gh.removeLabel(issueNumber, config.triggerLabel);
+      await gh.create(issueNumber, `The factory did not start this task: ${reason}\n\n${detail}\n\nNothing was recorded, so it can be started again once this is resolved. (${runUrl})`.replace(/\n\n\n+/g, "\n\n"));
+      throw new Error(`not started: ${reason}`);
+    };
+
+    if (!config.approvers.includes(actor)) await refuse(`${actor} is not listed as an approver in .factory/config.json.`);
     const issue = await gh.getIssue(issueNumber);
     if (issue.isPullRequest) throw new Error(`#${issueNumber} is a pull request, not a task issue`);
     if (issue.state !== "open") throw new Error(`task issue #${issueNumber} is ${issue.state}`);
     const extracted = extractTask(issue.body);
-    if (!extracted.ok) throw new Error(`task issue #${issueNumber} is not runnable: ${extracted.problems.join("; ")}`);
+    if (!extracted.ok) await refuse("the issue does not contain a valid task.", (extracted as { problems: string[] }).problems.map((p) => `- ${p}`).join("\n"));
+    const task = (extracted as { task: Task }).task;
     if ((await ledger.read(String(issueNumber))).length > 0) {
-      throw new Error(`task #${issueNumber} already has a run; resuming a run is not supported yet`);
+      throw new Error(`task #${issueNumber} already has a run; a new attempt needs a new task issue`);
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    const workflowFile = (env("GITHUB_WORKFLOW_REF").split("@")[0] ?? "").split("/").pop() ?? "";
+    // The count includes this run.
+    const runsToday = await gh.countWorkflowRuns(workflowFile, today);
+    if (runsToday > config.runsPerDay) {
+      await refuse(`this repository has reached its limit of ${config.runsPerDay} factory runs for today (budget.runsPerDay).`);
+    }
+
+    // The ticket evaluation. With something missing the ticket has already failed, so the model is not asked.
+    let modelOutput: unknown = null;
+    if (!failsWithoutModel(task, repository)) {
+      const template = readFileSync(join(ROOT, "prompts/evaluate.md"), "utf8");
+      const r = spawnSync(
+        process.env.FACTORY_CLAUDE || "claude",
+        [
+          "-p", "--safe-mode", "--permission-prompts", "none", "--tools", "",
+          "--model", config.evaluation.model, "--max-turns", "3", "--no-session-persistence",
+          "--max-budget-usd", String(config.evaluation.usd),
+          "--output-format", "json", "--json-schema", JSON.stringify(EVALUATION_SCHEMA),
+        ],
+        {
+          // An empty folder: the evaluator reads the ticket and nothing else.
+          cwd: mkdtempSync(join(tmpdir(), "factory-evaluate-")),
+          env: modelEnv(),
+          input: evaluationPrompt(template, task, randomUUID()),
+          encoding: "utf8",
+          maxBuffer: 16 * 1024 * 1024,
+          stdio: ["pipe", "pipe", "inherit"],
+        },
+      );
+      writeFileSync(outFile("evaluation-result.json"), r.stdout ?? "");
+      if (r.error) throw r.error;
+      if (r.status !== 0) throw new Error(`the ticket evaluator exited with ${r.status ?? r.signal}`);
+      try {
+        modelOutput = (JSON.parse(r.stdout) as { structured_output?: unknown }).structured_output;
+      } catch {
+        modelOutput = null;
+      }
+    }
+    const evaluation = evaluateTicket(task, repository, modelOutput, { minMean: config.evaluation.minScore, minArea: config.evaluation.minAreaScore });
+    summary(evaluationComment(evaluation, { passed: "Ticket evaluation passed.", failed: "Ticket evaluation did not pass." }));
+    if (!evaluation.passed) {
+      await refuse(
+        "the ticket evaluation did not pass.",
+        evaluationComment(evaluation, { passed: "", failed: "Improve the areas scoring low, then add the label again." }),
+      );
     }
 
     const admitted: Admitted = {
       issue: issueNumber,
-      task: extracted.task,
-      taskDigest: digest(extracted.task),
+      task,
+      taskDigest: digest(task),
       policyDigest: digest(config),
       base,
+      ticketScore: evaluation.mean,
     };
-    await record(
-      ledger,
-      String(issueNumber),
-      admissionEvents({ actor, taskDigest: admitted.taskDigest, base, runUrl: env("FACTORY_RUN_URL") }),
-    );
+    const events = admissionEvents({ actor, taskDigest: admitted.taskDigest, base, runUrl });
+    events[0]!.cause += `; ticket evaluation ${evaluation.mean} of 5`;
+    await record(ledger, String(issueNumber), events);
+    await gh.addLabels(issueNumber, [STATUS_LABELS.inProgress]);
     writeFileSync(outFile("task.json"), JSON.stringify(admitted, null, 2));
     output("base", base);
     output("max_attempts", String(1 + config.repairRounds));
@@ -329,6 +395,10 @@ const commands: Record<string, () => Promise<void> | void> = {
       const attempts: Attempt[] = [];
       const verdicts: (Verdict | undefined)[] = [];
       const usage: SessionUsage[] = [];
+      const setStatus = async (label: string) => {
+        await gh.removeLabel(admitted.issue, STATUS_LABELS.inProgress);
+        await gh.addLabels(admitted.issue, [label]);
+      };
       const readJson = (path: string): unknown => {
         try {
           return JSON.parse(readFileSync(path, "utf8"));
@@ -364,6 +434,9 @@ const commands: Record<string, () => Promise<void> | void> = {
         if (existsSync(verdictPath)) usage.push(readUsage("judge", n, readJson(verdictPath)));
       }
 
+      const evaluatorResult = readJson(art("task", "evaluation-result.json"));
+      if (evaluatorResult) usage.unshift(readUsage("evaluator", 0, evaluatorResult));
+
       const plan = planEvents({
         baseline: (process.env.RESULT_BASELINE || "skipped") as StageResult,
         attempts,
@@ -385,6 +458,8 @@ const commands: Record<string, () => Promise<void> | void> = {
 
       await record(ledger, taskId, plan.events);
       if (!candidate || !verdict) {
+        await setStatus(STATUS_LABELS.attention);
+        await gh.create(admitted.issue, `The factory stopped work on this task after ${attempts.length} attempt(s): ${plan.summary}. (${runUrl})`);
         summary(`Run stopped after ${attempts.length} attempt(s): ${plan.summary}.`);
         process.exitCode = 1;
         return;
@@ -408,11 +483,14 @@ const commands: Record<string, () => Promise<void> | void> = {
           runUrl,
           attempt: plan.publishAttempt! + 1,
           usage: usageSection(usage),
+          ticketScore: admitted.ticketScore,
         }),
       });
       await record(ledger, taskId, [
         { type: "published", candidate: candidate.commit, cause: `pushed to ${pushed.branch}; draft pull request #${pr.number} (${runUrl})` },
       ]);
+      await setStatus(STATUS_LABELS.review);
+      await gh.create(admitted.issue, `The factory opened draft pull request #${pr.number} for this task. It is ready for review. (${runUrl})`);
       summary(`Published \`${candidate.commit}\` to \`${pushed.branch}\` as draft pull request #${pr.number}, accepted on attempt ${plan.publishAttempt! + 1}.`);
     } catch (e) {
       // Leave a terminal record so the run is never silently stuck, then fail the job.

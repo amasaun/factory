@@ -92,6 +92,28 @@ export class GitHub implements IssueComments, PullRequests {
     return { number: i.number, author: i.user.login, state: i.state, body: i.body ?? "", isPullRequest: !!i.pull_request };
   }
 
+  async addLabels(issue: number, labels: string[]): Promise<void> {
+    await this.#request("POST", `/issues/${issue}/labels`, { labels });
+  }
+
+  /** Remove a label. A label that is not on the issue is not an error. */
+  async removeLabel(issue: number, label: string): Promise<void> {
+    try {
+      await this.#request("DELETE", `/issues/${issue}/labels/${encodeURIComponent(label)}`);
+    } catch (e) {
+      if (!(e instanceof GitHubApiError && e.status === 404)) throw e;
+    }
+  }
+
+  /** How many runs of one workflow file were created on or after a date (YYYY-MM-DD, UTC). */
+  async countWorkflowRuns(workflowFile: string, since: string): Promise<number> {
+    const r = (await this.#request(
+      "GET",
+      `/actions/workflows/${encodeURIComponent(workflowFile)}/runs?per_page=1&created=${encodeURIComponent(`>=${since}`)}`,
+    )) as { total_count?: number };
+    return r.total_count ?? 0;
+  }
+
   // IssueComments
 
   async list(issue: number): Promise<IssueComment[]> {

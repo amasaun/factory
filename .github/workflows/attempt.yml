@@ -11,7 +11,7 @@ on:
     inputs:
       issue:
         required: true
-        type: number
+        type: string
       attempt:
         description: 1 for the first attempt, 2 and up for repairs
         required: true

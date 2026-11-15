@@ -20,6 +20,6 @@ Present the result to the user. Lead with what needs them, grouped by repository
 - `ci-pending` or `ready`: a pull request is open and waiting for their review. Give its number. Note that CI on a factory pull request does not start by itself; closing and reopening the pull request starts it.
 - `needs-human`: the run stopped for a decision. Say why, from the last event.
 - `failed`: the run ended without a pull request. Say why.
-- `not started` on an open issue: a task is written but not approved.
+- `not started` on an open issue: a task is written but work has not started. Either nobody has added the `factory` label yet, or the factory refused it; a refusal is explained in a comment on the issue.
 
 Then list what is in progress, and summarise finished tasks in one line. Do not start, cancel or change anything; if the user wants to act, tell them how.

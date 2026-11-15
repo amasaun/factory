@@ -23,6 +23,12 @@ export interface RepoConfig {
    */
   builderUsd: number;
   judgeUsd: number;
+  /** Runs that may start in this repository per UTC day. Guards against runaway triggers. */
+  runsPerDay: number;
+  /** Label that starts a run when added to a task issue. */
+  triggerLabel: string;
+  /** The ticket evaluation that every task must pass before it is started. */
+  evaluation: { model: string; minScore: number; minAreaScore: number; usd: number };
 }
 
 export const DEFAULT_REPAIR_ROUNDS = 1;
@@ -34,6 +40,9 @@ export const MAX_HANDOFFS = 2;
 export const DEFAULT_BUILDER_USD = 1;
 export const DEFAULT_JUDGE_USD = 0.5;
 export const MAX_SESSION_USD = 50;
+export const DEFAULT_RUNS_PER_DAY = 10;
+export const DEFAULT_TRIGGER_LABEL = "factory";
+export const DEFAULT_EVALUATION = { model: "sonnet", minScore: 4.5, minAreaScore: 4, usd: 0.25 } as const;
 
 const isArgv = (v: unknown): v is string[] =>
   Array.isArray(v) && v.length > 0 && v.every((s) => typeof s === "string" && s.length > 0);
@@ -76,6 +85,27 @@ export function parseConfig(text: string): RepoConfig {
   };
   const builderUsd = usd("builderUsd", DEFAULT_BUILDER_USD);
   const judgeUsd = usd("judgeUsd", DEFAULT_JUDGE_USD);
+  const runsPerDay = budget.runsPerDay ?? DEFAULT_RUNS_PER_DAY;
+  if (!Number.isInteger(runsPerDay) || (runsPerDay as number) < 1) problems.push("budget.runsPerDay must be a positive integer");
+  const triggerLabel = raw?.triggerLabel ?? DEFAULT_TRIGGER_LABEL;
+  if (typeof triggerLabel !== "string" || !/^[A-Za-z0-9][A-Za-z0-9 :._-]{0,48}$/.test(triggerLabel)) problems.push("triggerLabel must be a plain label name");
+  const ev = (raw?.evaluation ?? {}) as Record<string, unknown>;
+  const score = (key: "minScore" | "minAreaScore"): number => {
+    const v = ev[key] ?? DEFAULT_EVALUATION[key];
+    if (typeof v !== "number" || !(v >= 1 && v <= 5)) {
+      problems.push(`evaluation.${key} must be a number from 1 to 5`);
+      return DEFAULT_EVALUATION[key];
+    }
+    return v;
+  };
+  const evaluation = {
+    model: ev.model ?? DEFAULT_EVALUATION.model,
+    minScore: score("minScore"),
+    minAreaScore: score("minAreaScore"),
+    usd: ev.usd ?? DEFAULT_EVALUATION.usd,
+  };
+  if (typeof evaluation.model !== "string" || !/^[A-Za-z0-9._-]+$/.test(evaluation.model)) problems.push("evaluation.model must be a model name or alias");
+  if (typeof evaluation.usd !== "number" || !(evaluation.usd > 0 && evaluation.usd <= MAX_SESSION_USD)) problems.push("evaluation.usd must be a number above 0");
   if (problems.length) throw new Error(`.factory/config.json is invalid: ${problems.join("; ")}`);
   return {
     version: 1,
@@ -87,5 +117,8 @@ export function parseConfig(text: string): RepoConfig {
     handoffTokens: handoffTokens as number,
     builderUsd,
     judgeUsd,
+    runsPerDay: runsPerDay as number,
+    triggerLabel: triggerLabel as string,
+    evaluation: evaluation as RepoConfig["evaluation"],
   };
 }

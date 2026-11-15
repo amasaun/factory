@@ -12,7 +12,7 @@ import { configFile, initProblems, workflowFile } from "../src/plugin/init.ts";
 import { attention, renderStatus, repoStatus } from "../src/plugin/status.ts";
 import { findRepos, githubRepo, renderWorkspace } from "../src/plugin/workspace.ts";
 import { parseConfig } from "../src/run/config.ts";
-import { ev, toReady } from "./helpers.ts";
+import { ev, fullTask, toReady } from "./helpers.ts";
 
 const root = new URL("..", import.meta.url).pathname;
 const dir = mkdtempSync(join(tmpdir(), "factory-plugin-"));
@@ -122,7 +122,13 @@ test("setup files are valid and pin a release", () => {
   assert.deepEqual(config.approvers, ["owner"]);
   const wf = workflowFile(o);
   assert.ok(wf.includes("uses: amasaun/factory/.github/workflows/run.yml@v0.1.0"));
-  assert.ok(wf.includes("group: factory-${{ inputs.issue }}"));
+  assert.ok(wf.includes("group: factory-${{ github.event.issue.number || inputs.issue }}"));
+  // A label starts a run only when it is the factory label.
+  assert.ok(wf.includes("types: [labeled]"));
+  assert.ok(wf.includes("if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'factory'"));
+  assert.ok(wf.includes("actions: read"));
+  assert.equal(config.runsPerDay, 10);
+  assert.deepEqual(config.evaluation, { model: "sonnet", minScore: 4.5, minAreaScore: 4, usd: 0.25 });
   assert.ok(wf.includes("ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}"));
   assert.ok(!wf.includes("@main"));
   for (const bad of [{ version: "main" }, { approvers: [] }, { approvers: ["bad login"] }, { test: [] }, { test: [["npm test", ""]] }, { baseBranch: "a b" }]) {
@@ -145,17 +151,27 @@ test("init-files writes both files once and refuses to overwrite", () => {
   assert.match(bad.stderr, /--test must be JSON/);
 });
 
-test("the task command prints an issue body for a valid task and explains an invalid one", () => {
+test("the task command prints a ticket body for a complete task and explains what is missing otherwise", () => {
   const good = join(dir, "task.json");
-  writeFileSync(good, JSON.stringify(task));
-  const ok = cli(["task", good]);
+  writeFileSync(good, JSON.stringify(fullTask()));
+  const ok = cli(["task", good, "--repo", "acme/app"]);
   assert.equal(ok.status, 0, ok.stderr);
-  assert.equal(ok.stdout, renderTask(task));
-  const bad = join(dir, "bad.json");
-  writeFileSync(bad, JSON.stringify({ ...task, acceptance: [] }));
-  const no = cli(["task", bad]);
+  assert.equal(ok.stdout, renderTask(fullTask()));
+  const invalid = join(dir, "bad.json");
+  writeFileSync(invalid, JSON.stringify({ ...fullTask(), acceptance: [] }));
+  const no = cli(["task", invalid, "--repo", "acme/app"]);
   assert.equal(no.status, 1);
   assert.match(no.stderr, /at least one criterion/);
+  // Valid as a task, but it would be refused at pickup: say so before the ticket is filed.
+  const thin = join(dir, "thin.json");
+  writeFileSync(thin, JSON.stringify(task));
+  const gaps = cli(["task", thin, "--repo", "acme/app"]);
+  assert.equal(gaps.status, 1);
+  assert.match(gaps.stderr, /would fail the ticket evaluation/);
+  assert.match(gaps.stderr, /Test cases: there are no test cases/);
+  assert.match(gaps.stderr, /User story:/);
+  assert.equal(cli(["task", good, "--repo", "olivo/web"]).status, 1);
+  assert.equal(cli(["task", good]).status, 1);
 });
 
 test("the repository list is kept in one file and rejects junk", () => {
@@ -200,7 +216,9 @@ test("the plugin manifest, marketplace entry and skills agree with each other", 
   // Starting a run is the person's approval, so the run skill must never be auto-invoked or told to dispatch.
   const run = readFileSync(join(root, "skills/run/SKILL.md"), "utf8");
   assert.match(run, /disable-model-invocation: true/);
-  assert.match(run, /Do not start the run yourself/);
+  assert.match(run, /Do not add the label yourself/);
+  // The task writer must leave the approval to a person too.
+  assert.match(readFileSync(join(root, "skills/spec/SKILL.md"), "utf8"), /Do not add the label yourself/);
 });
 
 test("GitHub repository names are read from every usual remote spelling", () => {

@@ -16,15 +16,15 @@ Requirements: Claude Code, Node 22.18 or later, and the GitHub CLI (`gh auth log
 | Command | What it does |
 |---|---|
 | `/factory:init` | Sets up the current repository: finds the test commands and confirms them with you, opens a pull request adding the policy file and the workflow pinned to the latest release, and lists what only you or an admin can do (the model credential and two settings). |
-| `/factory:spec [what you want]` | Works out a small task with you, reads the code so the task names real files, checks the task is well formed, and files it as an issue once you agree with it. |
-| `/factory:run <issue>` | Summarises the task you are about to approve and shows you how to start it. |
+| `/factory:spec [what you want]` | Works out a small task with you and writes the ticket: description, user story, acceptance criteria as Given / When / Then, test cases, repository, and other areas affected. It checks nothing is missing, previews the score the factory will give it, and files the issue once you agree. |
+| `/factory:run <issue>` | Summarises the task you are about to approve and shows you how to add the label that starts it. |
 | `/factory:status [owner/name ...]` | Shows every factory task across your repositories: what is waiting on you, what is in progress, what finished. |
 
-## Who starts a run
+## Who starts the work
 
-Starting a run is your approval of the task, so it is always your own action: the "Run workflow" button in GitHub, or `gh workflow run factory.yml -f issue=<number>` typed by you. `/factory:run` prepares that step and does not take it. Claude is told not to start runs, and that command cannot be triggered by Claude without you typing it.
+Work starts when the `factory` label is added to a task issue. That is your approval of the task, so it is always your own action: add the label in GitHub, or run `gh issue edit <number> --add-label factory` yourself. `/factory:spec` and `/factory:run` prepare that step and do not take it. Claude is told not to add the label.
 
-This is an instruction to the model, not a technical barrier: a Claude session with your GitHub login is able to start a workflow. If you need a hard barrier, start runs only from the GitHub website.
+This is an instruction to the model, not a technical barrier: a Claude session with your GitHub login is able to add a label. What stands behind it is the factory's own gate: whoever adds the label must be a listed approver, and the ticket must pass the evaluation.
 
 ## The repository list
 

@@ -57,8 +57,12 @@ If the user is not an admin of the repository, say which of these they will need
 
 You may check that a secret with the right name exists using `gh secret list`, which shows names only. If it fails for lack of permission, say so and move on.
 
-## 5. Register the repository
+## 5. Create the label
+
+Work on a task starts when the `factory` label is added to its issue. Make sure the label exists: `gh label create factory --repo <owner/name> --description "Approved for the factory" || true`. Creating the label approves nothing; adding it to an issue does, and that is for a person.
+
+## 6. Register the repository
 
 Run `node ${CLAUDE_PLUGIN_ROOT}/src/plugin-cli.ts repos add <owner/name>` so `/factory:status` includes it.
 
-Finish by telling the user the next step: write a first task with `/factory:spec`.
+Finish by telling the user the next step: write a first task with `/factory:spec`, review it, and add the `factory` label to start it.

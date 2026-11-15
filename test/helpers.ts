@@ -1,4 +1,6 @@
 import { type FactoryEvent, type RunState, applyEvent, newRun } from "../src/control/run.ts";
+import type { Task } from "../src/control/task.ts";
+import { AREAS } from "../src/run/evaluate.ts";
 
 export const C1 = "1111111111111111111111111111111111111111";
 export const C2 = "2222222222222222222222222222222222222222";
@@ -36,3 +38,27 @@ export const verifyingToReady = (): FactoryEvent[] => [
 ];
 
 export const toReady = (): FactoryEvent[] => [...toVerifying(), ...verifyingToReady()];
+
+/** A ticket with everything the ticket evaluation looks for, for the repository acme/app. */
+export const fullTask = (): Task => ({
+  summary: "Add a truncate helper so long titles fit in list views.",
+  story: { role: "a user browsing a list", want: "long titles shortened with an ellipsis", benefit: "rows stay on one line and remain readable" },
+  repository: "acme/app",
+  impactedAreas: [{ area: "List views", impact: "Titles longer than the limit are now shortened." }],
+  goal: "Add truncate(text, max) to the text utilities.",
+  acceptance: [
+    { id: "AC-1", behavior: "Short text is unchanged.", evidence: "unit test", gherkin: "Given the text 'abc'\nWhen it is truncated to 4\nThen the result is 'abc'" },
+    { id: "AC-2", behavior: "Long text is cut with an ellipsis.", evidence: "unit test", gherkin: "Given the text 'abcdef'\nWhen it is truncated to 4\nThen the result is 'abc…'" },
+  ],
+  testCases: [
+    { id: "T-1", description: "truncate('abc', 4) returns 'abc'", covers: ["AC-1"] },
+    { id: "T-2", description: "truncate('abcdef', 4) returns 'abc…' and has length 4", covers: ["AC-2"] },
+  ],
+  scenarios: { omitted: "not implemented yet" },
+  nonGoals: ["Word-aware truncation"],
+  scope: { components: ["text"], permitted: ["src/truncate.js", "test/truncate.test.js"], forbidden: [] },
+  risk: { level: "low", concerns: [] },
+});
+export const scores = (value: number, over: Record<string, number> = {}) => ({
+  scores: Object.fromEntries(AREAS.map((a) => [a, { score: over[a] ?? value, reason: `${a} looks fine` }])),
+});

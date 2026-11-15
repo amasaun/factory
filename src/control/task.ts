@@ -8,9 +8,27 @@ export interface Criterion {
   id: string;
   behavior: string;
   evidence: string;
+  /** The criterion as a Given / When / Then scenario. */
+  gherkin?: string;
+}
+
+export interface TestCase {
+  id: string;
+  description: string;
+  /** Ids of the acceptance criteria this case checks. */
+  covers: string[];
 }
 
 export interface Task {
+  /** A short description of the change, readable on its own. */
+  summary?: string;
+  /** Who this is for, what they want, and why. */
+  story?: { role: string; want: string; benefit: string };
+  /** The repository this task changes, as `owner/name`. */
+  repository?: string;
+  /** Other parts of the system the change could affect, so people can be told. */
+  impactedAreas?: { area: string; impact: string }[];
+  testCases?: TestCase[];
   goal: string;
   acceptance: Criterion[];
   /** Digest of the hidden scenarios, or a justification for omitting them. */
@@ -57,6 +75,43 @@ export function taskProblems(input: unknown): string[] {
         }
         if (seen.has(c.id)) problems.push(`duplicate criterion id '${c.id}'`);
         seen.add(c.id);
+      });
+    }
+  }
+
+  if ("summary" in input && !isText(input.summary)) problems.push("summary must be non-empty text");
+  if ("story" in input) {
+    const st = input.story;
+    if (!isObject(st) || !isText(st.role) || !isText(st.want) || !isText(st.benefit)) {
+      problems.push("story needs role, want and benefit");
+    }
+  }
+  if ("repository" in input && !(typeof input.repository === "string" && /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(input.repository))) {
+    problems.push("repository must be owner/name");
+  }
+  if ("impactedAreas" in input) {
+    const list = input.impactedAreas;
+    if (!Array.isArray(list) || !list.every((a) => isObject(a) && isText(a.area) && isText(a.impact))) {
+      problems.push("impactedAreas must be a list of { area, impact }");
+    }
+  }
+  if (Array.isArray(input.acceptance)) {
+    input.acceptance.forEach((c, i) => {
+      if (isObject(c) && "gherkin" in c && !isText(c.gherkin)) problems.push(`acceptance[${i}].gherkin must be non-empty text`);
+    });
+  }
+  if ("testCases" in input) {
+    const list = input.testCases;
+    const ids = new Set(Array.isArray(input.acceptance) ? input.acceptance.filter(isObject).map((c) => c.id) : []);
+    if (!Array.isArray(list)) {
+      problems.push("testCases must be a list");
+    } else {
+      list.forEach((t, i) => {
+        if (!isObject(t) || !isText(t.id) || !isText(t.description) || !isTextList(t.covers)) {
+          problems.push(`testCases[${i}] needs id, description and covers`);
+          return;
+        }
+        for (const id of t.covers) if (!ids.has(id)) problems.push(`testCases[${i}] covers unknown criterion '${id}'`);
       });
     }
   }
