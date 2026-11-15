@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/amasaun/factory/schemas/task.schema.json",
+  "title": "Factory task contract",
+  "type": "object",
+  "required": ["goal", "acceptance", "scenarios", "nonGoals", "scope", "risk"],
+  "additionalProperties": false,
+  "$defs": {
+    "text": { "type": "string", "minLength": 1 },
+    "textList": { "type": "array", "items": { "$ref": "#/$defs/text" } }
+  },
+  "properties": {
+    "goal": { "$ref": "#/$defs/text" },
+    "acceptance": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "behavior", "evidence"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "$ref": "#/$defs/text" },
+          "behavior": { "$ref": "#/$defs/text" },
+          "evidence": { "$ref": "#/$defs/text" }
+        }
+      }
+    },
+    "scenarios": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["digest"],
+          "additionalProperties": false,
+          "properties": { "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" } }
+        },
+        {
+          "type": "object",
+          "required": ["omitted"],
+          "additionalProperties": false,
+          "properties": { "omitted": { "$ref": "#/$defs/text" } }
+        }
+      ]
+    },
+    "nonGoals": { "$ref": "#/$defs/textList" },
+    "scope": {
+      "type": "object",
+      "required": ["components", "permitted", "forbidden"],
+      "additionalProperties": false,
+      "properties": {
+        "components": { "$ref": "#/$defs/textList" },
+        "permitted": { "$ref": "#/$defs/textList" },
+        "forbidden": { "$ref": "#/$defs/textList" }
+      }
+    },
+    "risk": {
+      "type": "object",
+      "required": ["level", "concerns"],
+      "additionalProperties": false,
+      "properties": {
+        "level": { "enum": ["low", "medium", "high"] },
+        "concerns": { "$ref": "#/$defs/textList" }
+      }
+    },
+    "context": { "$ref": "#/$defs/textList" },
+    "reuse": { "$ref": "#/$defs/textList" },
+    "approach": { "type": "string" },
+    "verification": { "$ref": "#/$defs/textList" },
+    "run": { "$ref": "#/$defs/textList" },
+    "exceptions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["scope", "rationale", "replacementEvidence"],
+        "additionalProperties": false,
+        "properties": {
+          "scope": { "$ref": "#/$defs/text" },
+          "rationale": { "$ref": "#/$defs/text" },
+          "replacementEvidence": { "$ref": "#/$defs/text" }
+        }
+      }
+    },
+    "dependsOn": { "$ref": "#/$defs/textList" },
+    "budget": { "type": "object", "additionalProperties": { "type": "number", "minimum": 0 } }
+  }
+}

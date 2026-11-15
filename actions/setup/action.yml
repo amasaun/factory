@@ -1,0 +1,10 @@
+name: factory setup
+description: Makes the factory's code available to the job as $FACTORY_ROOT and installs Node.
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v7
+      with:
+        node-version: 26
+    - shell: bash
+      run: echo "FACTORY_ROOT=$(cd "${{ github.action_path }}/../.." && pwd)" >> "$GITHUB_ENV"

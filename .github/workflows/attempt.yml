@@ -1,0 +1,307 @@
+# One attempt at a task: build, freeze, verify, judge. Called by run.yml, once
+# for the first attempt and again for each repair.
+#
+# Jobs marked "worker" hold a read-only token. Jobs marked "trusted" never
+# execute code from the target repository. A candidate that is refused, fails
+# its tests or is rejected does not fail its job: the job reports the outcome
+# and leaves feedback for the next attempt.
+name: factory attempt
+on:
+  workflow_call:
+    inputs:
+      issue:
+        required: true
+        type: number
+      attempt:
+        description: 1 for the first attempt, 2 and up for repairs
+        required: true
+        type: number
+      previous:
+        description: Number of the attempt before this one, 0 for the first attempt
+        type: number
+        default: 0
+      base:
+        description: Base commit recorded at admission
+        required: true
+        type: string
+      previous_tree:
+        description: Tree of the previous attempt's candidate, to detect a repair that changed nothing
+        type: string
+        default: ""
+      builder_model:
+        type: string
+        default: sonnet
+      judge_model:
+        type: string
+        default: opus
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: true
+    outputs:
+      build:
+        value: ${{ jobs.build.result }}
+      freeze_ok:
+        value: ${{ jobs.freeze.outputs.ok }}
+      unchanged:
+        value: ${{ jobs.freeze.outputs.unchanged }}
+      commit:
+        value: ${{ jobs.freeze.outputs.commit }}
+      tree:
+        value: ${{ jobs.freeze.outputs.tree }}
+      verify_passed:
+        value: ${{ jobs.verify.outputs.passed }}
+      verify_commit:
+        value: ${{ jobs.verify.outputs.commit }}
+      decision:
+        value: ${{ jobs.judge.outputs.decision }}
+      next:
+        description: accept, repair or stop
+        value: >-
+          ${{
+            (jobs.judge.outputs.decision == 'accept' && 'accept')
+            || (jobs.build.result == 'success' && jobs.freeze.result == 'success'
+                && jobs.freeze.outputs.unchanged != 'true'
+                && (jobs.freeze.outputs.ok == 'false' || jobs.verify.outputs.passed == 'false' || jobs.judge.outputs.decision == 'reject')
+                && 'repair')
+            || 'stop'
+          }}
+
+permissions: {}
+
+env:
+  FACTORY_ISSUE: ${{ inputs.issue }}
+  FACTORY_ATTEMPT: ${{ inputs.attempt }}
+  FACTORY_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+  FACTORY_REPO_DIR: ${{ github.workspace }}/repo
+  FACTORY_IN: ${{ github.workspace }}/factory-in
+  FACTORY_OUT: ${{ github.workspace }}/factory-out
+
+jobs:
+  build: # worker, holds the model credential
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.base }}
+          path: repo
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: task
+          path: factory-in/task
+      - if: inputs.attempt > 1
+        uses: actions/download-artifact@v8
+        with:
+          name: candidate-${{ inputs.previous }}
+          path: factory-in/candidate-${{ inputs.previous }}
+      - if: inputs.attempt > 1
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: feedback-${{ inputs.previous }}
+          path: factory-in/feedback-${{ inputs.previous }}
+      - if: inputs.attempt > 1
+        name: Start from the previous attempt's changes
+        working-directory: repo
+        env:
+          BASE: ${{ inputs.base }}
+          PREVIOUS: ${{ github.workspace }}/factory-in/candidate-${{ inputs.previous }}/candidate.bundle
+        run: |
+          git fetch -q "$PREVIOUS" candidate:refs/heads/previous
+          git -c core.hooksPath=/dev/null checkout -q --detach previous
+          # Keep the previous changes in the working tree, on top of the base commit, so the result is one commit.
+          git reset -q --soft "$BASE"
+      - uses: amasaun/factory/actions/setup@main
+      - run: node "$FACTORY_ROOT/src/cli.ts" builder-prompt
+      - run: npm install -g @anthropic-ai/claude-code@latest
+      - name: Build
+        working-directory: repo
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          MODEL: ${{ inputs.builder_model }}
+        run: |
+          mapfile -t RULES < "$FACTORY_OUT/builder-allowed.txt"
+          claude -p --safe-mode --permission-mode acceptEdits --permission-prompts none \
+            --tools "Read,Edit,Write,Glob,Grep,Bash" \
+            --allowedTools "Read" "Edit" "Write" "Glob" "Grep" "${RULES[@]}" \
+            --model "$MODEL" --max-turns 40 --no-session-persistence --output-format json \
+            < "$FACTORY_OUT/builder-prompt.md" > "$FACTORY_OUT/builder-result.json" || status=$?
+          node "$FACTORY_ROOT/src/cli.ts" show-result builder-result.json
+          exit "${status:-0}"
+      - name: Bundle the working tree as one commit
+        working-directory: repo
+        env:
+          BASE: ${{ inputs.base }}
+        run: |
+          git checkout -q -b candidate
+          git add -A
+          if git diff --cached --quiet; then
+            echo "::error::the builder made no changes"
+            exit 1
+          fi
+          git -c core.hooksPath=/dev/null -c user.name="factory-builder" \
+            -c user.email="factory-builder@users.noreply.github.com" \
+            commit -q -F "$FACTORY_OUT/commit-message.txt"
+          git bundle create "$FACTORY_OUT/candidate.bundle" "${BASE}..candidate"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: candidate-${{ inputs.attempt }}
+          path: factory-out/candidate.bundle
+          if-no-files-found: error
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: builder-log-${{ inputs.attempt }}
+          path: factory-out/builder-result.json
+          if-no-files-found: ignore
+
+  freeze: # trusted
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      ok: ${{ steps.freeze.outputs.ok }}
+      unchanged: ${{ steps.freeze.outputs.unchanged }}
+      commit: ${{ steps.freeze.outputs.commit }}
+      tree: ${{ steps.freeze.outputs.tree }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.base }}
+          path: repo
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: task
+          path: factory-in/task
+      - uses: actions/download-artifact@v8
+        with:
+          name: candidate-${{ inputs.attempt }}
+          path: factory-in/candidate-${{ inputs.attempt }}
+      - uses: amasaun/factory/actions/setup@main
+      - id: freeze
+        run: node "$FACTORY_ROOT/src/cli.ts" freeze
+        env:
+          FACTORY_PREVIOUS_TREE: ${{ inputs.previous_tree }}
+      - if: steps.freeze.outputs.ok == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: frozen-${{ inputs.attempt }}
+          path: |
+            factory-out/frozen.json
+            factory-out/diff.patch
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        with:
+          name: feedback-${{ inputs.attempt }}
+          path: factory-out/feedback.md
+          if-no-files-found: ignore
+
+  verify: # worker, no secrets
+    needs: freeze
+    if: needs.freeze.outputs.ok == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      commit: ${{ steps.identify.outputs.commit }}
+      passed: ${{ steps.report.outputs.passed }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.base }}
+          path: repo
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: candidate-${{ inputs.attempt }}
+          path: factory-in/candidate-${{ inputs.attempt }}
+      - id: identify
+        name: Check out exactly the frozen candidate
+        working-directory: repo
+        env:
+          EXPECTED: ${{ needs.freeze.outputs.commit }}
+          BUNDLE: ${{ github.workspace }}/factory-in/candidate-${{ inputs.attempt }}/candidate.bundle
+        run: |
+          git fetch -q "$BUNDLE" candidate:refs/heads/candidate
+          sha="$(git rev-parse candidate)"
+          if [ "$sha" != "$EXPECTED" ]; then
+            echo "::error::bundle head $sha is not the frozen candidate $EXPECTED"
+            exit 1
+          fi
+          git -c core.hooksPath=/dev/null checkout -q --detach "$sha"
+          echo "commit=$sha" >> "$GITHUB_OUTPUT"
+      - uses: amasaun/factory/actions/setup@main
+      - id: test
+        # A failing test is an outcome to report, not a broken job.
+        continue-on-error: true
+        run: node "$FACTORY_ROOT/src/cli.ts" verify
+        env:
+          FACTORY_BASE: ${{ inputs.base }}
+      - id: report
+        # The runner, not the code under test, decides this value.
+        run: echo "passed=${{ steps.test.outcome == 'success' }}" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: feedback-${{ inputs.attempt }}
+          path: factory-out/feedback.md
+          if-no-files-found: ignore
+
+  judge: # holds the model credential, runs no repository code
+    needs: [freeze, verify]
+    if: needs.verify.outputs.passed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      decision: ${{ steps.decide.outputs.decision }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.base }}
+          path: repo
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: task
+          path: factory-in/task
+      - uses: actions/download-artifact@v8
+        with:
+          name: frozen-${{ inputs.attempt }}
+          path: factory-in/frozen-${{ inputs.attempt }}
+      - uses: amasaun/factory/actions/setup@main
+      - run: node "$FACTORY_ROOT/src/cli.ts" judge-prompt
+      - run: npm install -g @anthropic-ai/claude-code@latest
+      - name: Judge
+        working-directory: repo
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          MODEL: ${{ inputs.judge_model }}
+        run: |
+          claude -p --safe-mode --permission-prompts none \
+            --tools "Read,Glob,Grep" --allowedTools "Read" "Glob" "Grep" \
+            --model "$MODEL" --max-turns 30 --no-session-persistence --output-format json \
+            --json-schema "$(cat "$FACTORY_ROOT/schemas/verdict.schema.json")" \
+            < "$FACTORY_OUT/judge-prompt.md" > "$FACTORY_OUT/judge-result.json" || status=$?
+          node "$FACTORY_ROOT/src/cli.ts" show-result judge-result.json
+          exit "${status:-0}"
+      - id: decide
+        run: node "$FACTORY_ROOT/src/cli.ts" decide
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: verdict-${{ inputs.attempt }}
+          path: factory-out/judge-result.json
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v7
+        with:
+          name: feedback-${{ inputs.attempt }}
+          path: factory-out/feedback.md
+          if-no-files-found: ignore

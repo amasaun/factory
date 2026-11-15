@@ -1,0 +1,16 @@
+{
+  "name": "factory",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Autonomous software delivery factory for Claude Code",
+  "type": "module",
+  "engines": { "node": ">=22.18" },
+  "scripts": {
+    "test": "node --test \"test/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.8.0"
+  }
+}

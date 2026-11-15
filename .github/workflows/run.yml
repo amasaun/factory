@@ -1,0 +1,186 @@
+# One factory run: an approved task issue in, a draft pull request out
+# (docs/spec.md §9). Called from a target repository; see docs/running.md.
+#
+# A run is one baseline check, then up to three attempts (attempt.yml). A later
+# attempt runs only when the one before it failed in a way the builder can fix
+# and repository policy allows another round. Skipped jobs use no minutes.
+#
+# Jobs marked "worker" hold a read-only token. Jobs marked "trusted" never
+# execute code from the target repository.
+name: factory run
+on:
+  workflow_call:
+    inputs:
+      issue:
+        description: Number of the task issue
+        required: true
+        type: number
+      builder_model:
+        type: string
+        default: sonnet
+      judge_model:
+        type: string
+        default: opus
+      app_login:
+        description: Login whose issue comments form the event log
+        type: string
+        default: "github-actions[bot]"
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: true
+
+permissions: {}
+
+env:
+  FACTORY_ISSUE: ${{ inputs.issue }}
+  FACTORY_APP_LOGIN: ${{ inputs.app_login }}
+  FACTORY_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+  FACTORY_REPO_DIR: ${{ github.workspace }}/repo
+  FACTORY_IN: ${{ github.workspace }}/factory-in
+  FACTORY_OUT: ${{ github.workspace }}/factory-out
+
+jobs:
+  admit: # trusted
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    outputs:
+      base: ${{ steps.admit.outputs.base }}
+      max_attempts: ${{ steps.admit.outputs.max_attempts }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: repo
+          persist-credentials: false
+      - uses: amasaun/factory/actions/setup@main
+      - name: Check that the model credential is configured
+        # Only a yes/no reaches this job; the credential itself does not.
+        env:
+          HAS_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
+        run: |
+          if [ "$HAS_TOKEN" != "true" ]; then
+            echo "::error::The repository secret CLAUDE_CODE_OAUTH_TOKEN is missing or empty. Add it under Settings > Secrets and variables > Actions > Repository secrets. Nothing was recorded for this task, so it can be started again."
+            exit 1
+          fi
+      - id: admit
+        run: node "$FACTORY_ROOT/src/cli.ts" admit
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          FACTORY_ACTOR: ${{ github.triggering_actor }}
+          FACTORY_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: task
+          path: factory-out/task.json
+          if-no-files-found: error
+
+  baseline: # worker
+    needs: admit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.admit.outputs.base }}
+          path: repo
+          persist-credentials: false
+      - uses: amasaun/factory/actions/setup@main
+      - run: node "$FACTORY_ROOT/src/cli.ts" verify
+        env:
+          FACTORY_BASE: ${{ needs.admit.outputs.base }}
+          FACTORY_OUT: ""
+
+  attempt1:
+    needs: [admit, baseline]
+    permissions:
+      contents: read
+    uses: amasaun/factory/.github/workflows/attempt.yml@main
+    with:
+      issue: ${{ inputs.issue }}
+      attempt: 1
+      base: ${{ needs.admit.outputs.base }}
+      builder_model: ${{ inputs.builder_model }}
+      judge_model: ${{ inputs.judge_model }}
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+  attempt2:
+    needs: [admit, attempt1]
+    if: needs.attempt1.outputs.next == 'repair' && fromJSON(needs.admit.outputs.max_attempts) >= 2
+    permissions:
+      contents: read
+    uses: amasaun/factory/.github/workflows/attempt.yml@main
+    with:
+      issue: ${{ inputs.issue }}
+      attempt: 2
+      previous: 1
+      base: ${{ needs.admit.outputs.base }}
+      previous_tree: ${{ needs.attempt1.outputs.tree }}
+      builder_model: ${{ inputs.builder_model }}
+      judge_model: ${{ inputs.judge_model }}
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+  attempt3:
+    needs: [admit, attempt1, attempt2]
+    if: needs.attempt2.outputs.next == 'repair' && fromJSON(needs.admit.outputs.max_attempts) >= 3
+    permissions:
+      contents: read
+    uses: amasaun/factory/.github/workflows/attempt.yml@main
+    with:
+      issue: ${{ inputs.issue }}
+      attempt: 3
+      previous: 2
+      base: ${{ needs.admit.outputs.base }}
+      previous_tree: ${{ needs.attempt2.outputs.tree }}
+      builder_model: ${{ inputs.builder_model }}
+      judge_model: ${{ inputs.judge_model }}
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+  finish: # trusted, the only job that can write
+    needs: [admit, baseline, attempt1, attempt2, attempt3]
+    if: always() && needs.admit.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.admit.outputs.base }}
+          path: repo
+      - uses: actions/download-artifact@v8
+        with:
+          path: factory-in
+      - uses: amasaun/factory/actions/setup@main
+      - run: node "$FACTORY_ROOT/src/cli.ts" finish
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RESULT_BASELINE: ${{ needs.baseline.result }}
+          A1_RESULT: ${{ needs.attempt1.result }}
+          A1_BUILD: ${{ needs.attempt1.outputs.build }}
+          A1_FREEZE_OK: ${{ needs.attempt1.outputs.freeze_ok }}
+          A1_UNCHANGED: ${{ needs.attempt1.outputs.unchanged }}
+          A1_COMMIT: ${{ needs.attempt1.outputs.commit }}
+          A1_VERIFY_PASSED: ${{ needs.attempt1.outputs.verify_passed }}
+          A1_VERIFY_COMMIT: ${{ needs.attempt1.outputs.verify_commit }}
+          A2_RESULT: ${{ needs.attempt2.result }}
+          A2_BUILD: ${{ needs.attempt2.outputs.build }}
+          A2_FREEZE_OK: ${{ needs.attempt2.outputs.freeze_ok }}
+          A2_UNCHANGED: ${{ needs.attempt2.outputs.unchanged }}
+          A2_COMMIT: ${{ needs.attempt2.outputs.commit }}
+          A2_VERIFY_PASSED: ${{ needs.attempt2.outputs.verify_passed }}
+          A2_VERIFY_COMMIT: ${{ needs.attempt2.outputs.verify_commit }}
+          A3_RESULT: ${{ needs.attempt3.result }}
+          A3_BUILD: ${{ needs.attempt3.outputs.build }}
+          A3_FREEZE_OK: ${{ needs.attempt3.outputs.freeze_ok }}
+          A3_UNCHANGED: ${{ needs.attempt3.outputs.unchanged }}
+          A3_COMMIT: ${{ needs.attempt3.outputs.commit }}
+          A3_VERIFY_PASSED: ${{ needs.attempt3.outputs.verify_passed }}
+          A3_VERIFY_COMMIT: ${{ needs.attempt3.outputs.verify_commit }}

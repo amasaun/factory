@@ -1,0 +1,47 @@
+# Milestone 0 boundary proof (docs/spec.md §4, §19): a job holding only a
+# read-only token cannot write to the repository. This is the token model a
+# factory worker would run under on GitHub Actions. It does not prove network
+# egress limits or the model-credential boundary.
+name: boundary
+# Runs only when workflows change, to keep Actions minutes down.
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/**"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  worker-cannot-write:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: A push with the worker token must be refused
+        run: |
+          probe="refs/heads/boundary-probe/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          if git push origin "HEAD:${probe}"; then
+            echo "::error::worker token was able to push"
+            git push origin ":${probe}" || true
+            exit 1
+          fi
+          echo "push refused, as required"
+      - name: Creating a check run with the worker token must be refused
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh api -X POST "repos/${GITHUB_REPOSITORY}/check-runs" \
+               -f name=boundary-probe -f head_sha="$(git rev-parse HEAD)"; then
+            echo "::error::worker token was able to create a check run"
+            exit 1
+          fi
+          echo "check run refused, as required"
+      - name: Commenting on an issue with the worker token must be refused
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh api -X POST "repos/${GITHUB_REPOSITORY}/issues/${{ github.event.pull_request.number || 1 }}/comments" \
+               -f body="boundary probe: this comment should not exist"; then
+            echo "::error::worker token was able to write an event-log comment"
+            exit 1
+          fi
+          echo "comment refused, as required"
