@@ -112,7 +112,7 @@ test("the command shows its estimate and refuses to spend without being told to"
   assert.equal(noYes.status, 1);
   assert.match(noYes.stderr, /Re-run with --yes/);
   assert.equal(run(["tickets", "--only", "no-such-case", "--dry-run"]).status, 1);
-  assert.equal(run(["judge"]).status, 1);
+  assert.equal(run(["builder"]).status, 1);
 });
 
 test("the index of cases lists every case with its label", () => {

@@ -28,8 +28,8 @@ Early. A first pipeline exists that takes one approved task issue to a draft pul
 | Either model credential (API key or subscription token), per-session spending caps, model usage in the pull request, numbered releases | Implemented; the spending cap and credential handling are checked locally, the rest by tests |
 | Claude Code plugin: `/factory:init`, `/factory:spec`, `/factory:run`, `/factory:status` ([docs/plugin.md](docs/plugin.md)) | Implemented; the helpers are tested and status has been run against a real repository, the commands themselves have not yet been used in a Claude Code session |
 | Ticket evaluation before any build, and starting work by adding a label to the task issue | Implemented; the admit step is tested end to end against stand-ins for GitHub and the model, not yet run on GitHub |
-| Golden set for the ticket evaluator: 17 labelled tickets and a harness that reports wrong decisions and score spread ([evals/README.md](evals/README.md)) | Implemented; labels not yet reviewed, and not yet run against a real model |
-| Golden sets for the judge and the builder, starting from a Jira or Linear ticket, resume, hidden scenarios, mutation gates, CI observation, review feedback | Not started |
+| Golden sets for the ticket evaluator (17 labelled tickets) and the judge (13 labelled code changes), with a harness that reports wrong decisions and disagreement between identical runs ([evals/README.md](evals/README.md)) | Implemented; labels have had a first-pass review, and neither set has been run against a real model |
+| Golden set for the builder, starting from a Jira or Linear ticket, resume, hidden scenarios, mutation gates, CI observation, review feedback | Not started |
 
 ## Use it from Claude Code
 
