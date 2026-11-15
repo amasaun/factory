@@ -29,7 +29,8 @@ export function configFile(o: InitOptions): string {
       approvers: o.approvers,
       commands: { setup: o.setup ?? [], test: o.test },
       extraProtected: [],
-      budget: { repairRounds: 1, handoffTokens: 150000, builderUsd: 1, judgeUsd: 0.5 },
+      budget: { repairRounds: 1, handoffTokens: 150000, builderUsd: 1, judgeUsd: 0.5, runsPerDay: 10 },
+      evaluation: { model: "sonnet", minScore: 4.5, minAreaScore: 4 },
     },
     null,
     2,
@@ -37,33 +38,39 @@ export function configFile(o: InitOptions): string {
 }
 
 export function workflowFile(o: InitOptions): string {
-  return `# Start a factory run for an approved task issue. Starting this workflow is
-# the approval: only logins listed under "approvers" in .factory/config.json
-# may do it. See https://github.com/amasaun/factory/blob/main/docs/running.md
+  return `# Starts a factory run for a task issue, either when the "factory" label is
+# added to it or when started by hand. Adding the label is the approval: only
+# logins listed under "approvers" in .factory/config.json count, and the task
+# must pass the ticket evaluation. See
+# https://github.com/amasaun/factory/blob/main/docs/running.md
 name: factory
 on:
+  issues:
+    types: [labeled]
   workflow_dispatch:
     inputs:
       issue:
         description: Number of the task issue to build
         required: true
-        type: number
+        type: string
 
 concurrency:
-  group: factory-\${{ inputs.issue }}
+  group: factory-\${{ github.event.issue.number || inputs.issue }}
   cancel-in-progress: false
 
 permissions: {}
 
 jobs:
   run:
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'factory'
     permissions:
       contents: write
       pull-requests: write
       issues: write
+      actions: read
     uses: amasaun/factory/.github/workflows/run.yml@${o.version}
     with:
-      issue: \${{ fromJSON(inputs.issue) }}
+      issue: \${{ format('{0}', github.event.issue.number || inputs.issue) }}
     secrets:
       # Set one of these as a repository secret.
       CLAUDE_CODE_OAUTH_TOKEN: \${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

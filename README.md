@@ -27,7 +27,8 @@ Early. A first pipeline exists that takes one approved task issue to a draft pul
 | Context handoff: a builder that passes its context limit is stopped and a fresh one continues | Implemented; tested against a stand-in for the model CLI, not yet triggered on a real run |
 | Either model credential (API key or subscription token), per-session spending caps, model usage in the pull request, numbered releases | Implemented; the spending cap and credential handling are checked locally, the rest by tests |
 | Claude Code plugin: `/factory:init`, `/factory:spec`, `/factory:run`, `/factory:status` ([docs/plugin.md](docs/plugin.md)) | Implemented; the helpers are tested and status has been run against a real repository, the commands themselves have not yet been used in a Claude Code session |
-| Resume, hidden scenarios, mutation gates, CI observation, review feedback | Not started |
+| Ticket evaluation before any build, and starting work by adding a label to the task issue | Implemented; the admit step is tested end to end against stand-ins for GitHub and the model, not yet run on GitHub |
+| Starting from a Jira or Linear ticket, resume, hidden scenarios, mutation gates, CI observation, review feedback | Not started |
 
 ## Use it from Claude Code
 
@@ -62,6 +63,7 @@ src/run/
   render.ts             prompts and pull request body
   builder.ts            runs the builder, watches its context size and hands off
   usage.ts              model usage for the pull request
+  evaluate.ts           the ticket evaluation: plain checks, scoring and the pass rule
 scripts/release.sh      create a numbered release
 src/cli.ts              entry points for the pipeline's jobs
 src/plugin-cli.ts       helpers behind the plugin's commands

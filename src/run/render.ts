@@ -98,6 +98,8 @@ export function pullRequestBody(e: {
   attempt: number;
   /** Markdown describing model usage for the run. */
   usage: string;
+  /** Average score from the ticket evaluation, when one was recorded. */
+  ticketScore?: number;
 }): string {
   const criteria = e.task.acceptance
     .map((c) => {
@@ -121,6 +123,7 @@ export function pullRequestBody(e: {
     "",
     "## Checks",
     "",
+    ...(e.ticketScore === undefined ? [] : [`- Ticket evaluation before the build: average ${e.ticketScore} of 5.`]),
     "- Scope and protected paths: passed at intake.",
     `- Tests on the base commit and on the candidate: passed (${e.testCommands.map((c) => `\`${c.join(" ")}\``).join(", ")}).`,
     "- Independent judge: accepted.",

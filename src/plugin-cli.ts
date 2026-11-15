@@ -10,8 +10,10 @@ import { parseArgs } from "node:util";
 import { renderTask } from "./control/issue-task.ts";
 import { type Task, taskProblems } from "./control/task.ts";
 import { Gh, isRepoName } from "./plugin/gh.ts";
+import { type Area, AREA_TITLES, ticketGaps } from "./run/evaluate.ts";
 import { INIT_FILES, type InitOptions, configFile, initProblems, workflowFile } from "./plugin/init.ts";
 import { renderStatus, repoStatus } from "./plugin/status.ts";
+import { findRepos, renderWorkspace } from "./plugin/workspace.ts";
 
 const registryPath = () => process.env.FACTORY_REGISTRY || join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "factory", "repos.json");
 function readRegistry(): string[] {
@@ -39,12 +41,19 @@ const jsonArg = <T>(text: string | undefined, name: string): T => {
 };
 
 const commands: Record<string, (argv: string[]) => Promise<void> | void> = {
-  /** Check a task and print the issue body for it. */
+  /**
+   * Check a task and print the ticket body for it: task <task.json> --repo <owner/name>.
+   * Fails when the task is malformed or is missing something the ticket evaluation requires.
+   */
   task(argv) {
-    const file = argv[0] ?? fail("usage: task <task.json>");
+    const { values, positionals } = parseArgs({ args: argv, options: { repo: { type: "string" } }, allowPositionals: true });
+    const file = positionals[0] ?? fail("usage: task <task.json> --repo <owner/name>");
+    const repo = values.repo && isRepoName(values.repo) ? values.repo : fail("--repo <owner/name> is required: the repository the task is for");
     const task = jsonArg<unknown>(readFileSync(file, "utf8"), "the task file");
     const problems = taskProblems(task);
     if (problems.length) fail(`The task is not valid:\n${problems.map((p) => `- ${p}`).join("\n")}`);
+    const gaps = Object.entries(ticketGaps(task as Task, repo)).flatMap(([area, list]) => list.map((g) => `- ${AREA_TITLES[area as Area]}: ${g}`));
+    if (gaps.length) fail(`The task would fail the ticket evaluation before any scoring:\n${gaps.join("\n")}`);
     process.stdout.write(renderTask(task as Task));
   },
 
@@ -88,11 +97,29 @@ const commands: Record<string, (argv: string[]) => Promise<void> | void> = {
     }
   },
 
+  /** List the repository checkouts in a folder and which are set up: workspace [--dir <folder>] [--json]. */
+  workspace(argv) {
+    const { values } = parseArgs({ args: argv, options: { dir: { type: "string" }, json: { type: "boolean" } } });
+    const repos = findRepos(values.dir ?? process.cwd());
+    console.log(values.json ? JSON.stringify(repos, null, 2) : renderWorkspace(repos));
+  },
+
+  /** status [--repo owner/name ...] [--workspace [--dir <folder>]] [--json]. With neither, reads the registered repositories. */
   async status(argv) {
-    const { values } = parseArgs({ args: argv, options: { repo: { type: "string", multiple: true }, json: { type: "boolean" } } });
-    const repos = values.repo?.length ? values.repo : readRegistry();
+    const { values } = parseArgs({
+      args: argv,
+      options: { repo: { type: "string", multiple: true }, workspace: { type: "boolean" }, dir: { type: "string" }, json: { type: "boolean" } },
+    });
+    let repos = values.repo?.length ? values.repo : [];
+    if (values.workspace) {
+      // Only checkouts that are set up have factory tasks worth reading.
+      const here = findRepos(values.dir ?? process.cwd()).filter((r) => r.repo && r.setUp).map((r) => r.repo as string);
+      if (here.length === 0 && repos.length === 0) fail("No repository in this folder is set up for the factory. Run the workspace command to see what is here.");
+      repos = [...new Set([...repos, ...here])];
+    }
+    if (repos.length === 0) repos = readRegistry();
     for (const r of repos) if (!isRepoName(r)) fail(`'${r}' is not an owner/name repository`);
-    if (repos.length === 0) fail("No repositories to check. Pass --repo owner/name, or register one with: repos add owner/name");
+    if (repos.length === 0) fail("No repositories to check. Pass --repo owner/name, use --workspace in a folder of repositories, or register one with: repos add owner/name");
     const gh = new Gh();
     const result = [];
     for (const repo of repos) result.push(await repoStatus(gh, repo));

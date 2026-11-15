@@ -1,7 +1,8 @@
 /** Model usage as reported by the model CLI's result output, summed for a run's pull request. */
 
 export interface SessionUsage {
-  role: "builder" | "judge";
+  role: "builder" | "judge" | "evaluator";
+  /** Attempt number, or 0 for work done before the first attempt. */
   attempt: number;
   /** Model names the CLI reported, when it reported any. */
   models: string[];
@@ -43,7 +44,7 @@ export function usageSection(sessions: SessionUsage[]): string {
       s.role === "builder" && s.sessions !== undefined
         ? `${s.sessions} session(s), peak context ${s.peakContext ?? 0} tokens`
         : "";
-    return `| ${s.attempt} | ${s.role} | ${s.models.map((m) => `\`${m}\``).join(", ") || "not reported"} | ${money(s.usd)} | ${detail} |`;
+    return `| ${s.attempt === 0 ? "before" : s.attempt} | ${s.role} | ${s.models.map((m) => `\`${m}\``).join(", ") || "not reported"} | ${money(s.usd)} | ${detail} |`;
   });
   const known = sessions.filter((s) => s.usd !== null);
   const total = known.reduce((n, s) => n + (s.usd as number), 0);
