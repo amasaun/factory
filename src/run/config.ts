@@ -17,6 +17,12 @@ export interface RepoConfig {
    * continues. Half the model's context window applies as well if it is lower.
    */
   handoffTokens: number;
+  /**
+   * Spending caps per model session, in US dollars at list prices, passed to
+   * the model CLI. A session that passes its cap is stopped and the run ends.
+   */
+  builderUsd: number;
+  judgeUsd: number;
 }
 
 export const DEFAULT_REPAIR_ROUNDS = 1;
@@ -25,6 +31,9 @@ export const DEFAULT_HANDOFF_TOKENS = 150_000;
 export const MIN_HANDOFF_TOKENS = 20_000;
 /** A builder that needs more handoffs than this is working on a task that should be split. */
 export const MAX_HANDOFFS = 2;
+export const DEFAULT_BUILDER_USD = 1;
+export const DEFAULT_JUDGE_USD = 0.5;
+export const MAX_SESSION_USD = 50;
 
 const isArgv = (v: unknown): v is string[] =>
   Array.isArray(v) && v.length > 0 && v.every((s) => typeof s === "string" && s.length > 0);
@@ -57,6 +66,16 @@ export function parseConfig(text: string): RepoConfig {
   if (!Number.isInteger(handoffTokens) || (handoffTokens as number) < MIN_HANDOFF_TOKENS) {
     problems.push(`budget.handoffTokens must be an integer of at least ${MIN_HANDOFF_TOKENS}`);
   }
+  const usd = (key: string, fallback: number): number => {
+    const v = budget[key] ?? fallback;
+    if (typeof v !== "number" || !Number.isFinite(v) || v <= 0 || v > MAX_SESSION_USD) {
+      problems.push(`budget.${key} must be a number above 0 and at most ${MAX_SESSION_USD}`);
+      return fallback;
+    }
+    return v;
+  };
+  const builderUsd = usd("builderUsd", DEFAULT_BUILDER_USD);
+  const judgeUsd = usd("judgeUsd", DEFAULT_JUDGE_USD);
   if (problems.length) throw new Error(`.factory/config.json is invalid: ${problems.join("; ")}`);
   return {
     version: 1,
@@ -66,5 +85,7 @@ export function parseConfig(text: string): RepoConfig {
     extraProtected: (raw.extraProtected ?? []) as string[],
     repairRounds: repairRounds as number,
     handoffTokens: handoffTokens as number,
+    builderUsd,
+    judgeUsd,
   };
 }

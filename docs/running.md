@@ -13,11 +13,11 @@ This describes the current pipeline version. It takes one approved task issue an
      "approvers": ["your-login"],
      "commands": { "setup": [], "test": [["node", "--test"]] },
      "extraProtected": [],
-     "budget": { "repairRounds": 1, "handoffTokens": 150000 }
+     "budget": { "repairRounds": 1, "handoffTokens": 150000, "builderUsd": 1, "judgeUsd": 0.5 }
    }
    ```
 
-   Commands are argument arrays and run without a shell. Both `budget` settings are optional: `repairRounds` is 0, 1 or 2 (default 1), and `handoffTokens` is at least 20000 (default 150000).
+   Commands are argument arrays and run without a shell. Every `budget` setting is optional; the values shown are the defaults. See "Cost" below for what they do.
 
 2. Commit a workflow that calls the factory, for example `.github/workflows/factory.yml`:
 
@@ -40,13 +40,20 @@ This describes the current pipeline version. It takes one approved task issue an
          contents: write
          pull-requests: write
          issues: write
-       uses: amasaun/factory/.github/workflows/run.yml@main
+       uses: amasaun/factory/.github/workflows/run.yml@v0.1.0
        with:
          issue: ${{ fromJSON(inputs.issue) }}
        secrets:
          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+         ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
    ```
-3. Add the repository secret `CLAUDE_CODE_OAUTH_TOKEN`, generated with `claude setup-token`.
+
+   Name a release (`@v0.1.0`), not `@main`: the repository then runs exactly that version of every part of the factory until someone changes the line. Releases are listed on the factory repository's tags page.
+3. Add one model credential as a repository secret (Settings → Secrets and variables → Actions → Repository secrets):
+   - `ANTHROPIC_API_KEY`: an Anthropic API key, billed per use to whoever owns the key; or
+   - `CLAUDE_CODE_OAUTH_TOKEN`: a Claude subscription token generated with `claude setup-token`, which counts against that subscription's limits.
+
+   The credential belongs to whoever should pay for the work. If both are set, the API key is used. The names must match exactly.
 4. Settings → Actions → General → Workflow permissions: allow GitHub Actions to create pull requests.
 5. If the repository's organization restricts which actions and workflows may run, allow `amasaun/factory`.
 
@@ -106,12 +113,27 @@ A handoff happens inside one attempt and does not use up a repair round. On a sm
 
 ## Cost
 
-Measured on the first successful run (a small task, accepted on the first attempt):
+Every pull request the factory opens has a "Model usage" section listing, per attempt, the model used and the model CLI's estimate of what the builder and the judge cost.
 
-- **GitHub Actions:** 7 jobs, each under a minute and each billed as one minute. A repair attempt adds up to 4 jobs. Jobs that are skipped use nothing.
-- **Claude usage:** the builder (Sonnet) reported the equivalent of about $0.05 at list prices and the judge (Opus) about $0.09. With a subscription token this counts against the plan's limits; it is not billed per use.
+Measured on small tasks accepted on the first attempt:
 
-So a repair round costs at most about 4 Actions minutes plus one more builder run and, if its tests pass, one more judge run. Setting `budget.repairRounds` to 0 turns repair off.
+- **GitHub Actions:** 7 jobs, each under a minute and each billed as one minute to the owner of the repository where the run happens. A repair attempt adds up to 4 jobs. Skipped jobs use nothing.
+- **Model usage:** about $0.05 for the builder (Sonnet) and $0.09 for the judge (Opus) at list prices. With an API key that is what is billed. With a subscription token it counts against the plan's limits and is not billed per use.
+
+The `budget` settings bound a run:
+
+| Setting | Default | Effect |
+|---|---|---|
+| `repairRounds` | 1 | How many times a failed attempt may go back to the builder (0 to 2). |
+| `builderUsd` | 1 | A builder session that passes this estimated spend is stopped and the run ends. |
+| `judgeUsd` | 0.5 | The same for a judge session. |
+| `handoffTokens` | 150000 | Context size at which the builder is replaced by a fresh one. |
+
+The caps are per model session and are estimates made by the model CLI, checked after each model response, so a session can end slightly above its cap. With the defaults, the most a run with one repair round can spend on models is about 2 × ($1 + $0.50) = $3, or more if a builder is handed off, since each fresh session has its own cap. Typical runs are far below that.
+
+## Releases
+
+On `main`, the factory's workflows refer to each other at `@main`. `scripts/release.sh vX.Y.Z` makes one commit on top of `main` in which those references name the release, and tags it, so a repository that pins `@vX.Y.Z` gets every part of the factory from that release. Use `@main` only for trying out unreleased changes.
 
 ## Known limits of this version
 
@@ -123,4 +145,4 @@ So a repair round costs at most about 4 Actions minutes plus one more builder ru
 - **CI does not start on the pull request**, because pull requests opened with the workflow's own token do not trigger workflows. The run therefore ends in `ci-pending`.
 - **Repair is bounded and simple.** At most two repair rounds, the same builder model every time, and no escalation to a stronger model.
 - **One run per task issue.** A second run on the same issue is refused.
-- **Models are named by alias** (`sonnet` for the builder, `opus` for the judge), not pinned versions.
+- **Models are named by alias** (`sonnet` for the builder, `opus` for the judge), not pinned versions. The pull request records which model actually ran.
