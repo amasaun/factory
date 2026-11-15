@@ -148,6 +148,7 @@ test("a ticket that passes is admitted, marked in progress, and its score record
   assert.deepEqual([call.model, call.tools, call.sawTicket], ["sonnet", "", true]);
   assert.notEqual(call.cwd, repo);
   assert.ok(existsSync(join(outDir, "evaluation-result.json")));
+  assert.ok(r.stdout.includes("Ticket evaluator: claude-sonnet-5-5, estimated spend 0.0120 US dollars."));
 });
 
 test("a ticket scoring under the bar is refused: label removed, reasons posted, nothing recorded", async () => {

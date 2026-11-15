@@ -87,6 +87,7 @@ export function evaluateTicket(
   const gaps = ticketGaps(task, repository);
   const scores = isObject(modelOutput) && isObject(modelOutput.scores) ? modelOutput.scores : {};
   const areas = {} as Record<Area, AreaResult>;
+  const hasGaps = Object.values(gaps).some((g) => g.length > 0);
   for (const area of AREAS) {
     if (gaps[area].length) {
       areas[area] = { score: 1, reason: gaps[area].join("; ") };
@@ -95,7 +96,11 @@ export function evaluateTicket(
     const m = scores[area];
     const score = isObject(m) && typeof m.score === "number" && Number.isFinite(m.score) ? m.score : Number.NaN;
     if (!(score >= 1 && score <= 5)) {
-      areas[area] = { score: 1, reason: "the evaluator returned no usable score for this area" };
+      // With a gap elsewhere the ticket has already failed and the model is not asked, so nothing is wrong with the evaluator.
+      areas[area] = {
+        score: 1,
+        reason: hasGaps ? "not scored, because the ticket is missing the pieces listed in the other rows" : "the evaluator returned no usable score for this area",
+      };
       continue;
     }
     areas[area] = {
