@@ -22,6 +22,7 @@ const world = {
   comments: [] as { id: number; body: string; user: { login: string } }[],
   labels: new Set<string>(),
   runsToday: 1,
+  skippedToday: 0,
   nextId: 1,
 };
 function handle(req: IncomingMessage, res: ServerResponse, body: string) {
@@ -47,7 +48,11 @@ function handle(req: IncomingMessage, res: ServerResponse, body: string) {
     if (!world.labels.delete(name)) return send(404, { message: "Label does not exist" });
     return send(200, []);
   }
-  if (path === "/actions/workflows/factory.yml/runs") return send(200, { total_count: world.runsToday });
+  if (path === "/actions/workflows/factory.yml/runs") {
+    // Runs that really ran, plus ones skipped because some other label was added.
+    const runs = [...Array(world.runsToday).fill({ conclusion: null }), ...Array(world.skippedToday).fill({ conclusion: "skipped" })];
+    return send(200, { total_count: runs.length, workflow_runs: Number(url.searchParams.get("page") ?? 1) === 1 ? runs : [] });
+  }
   send(404, { message: `Not Found: ${req.method} ${path}` });
 }
 const server = createServer((req, res) => {
@@ -94,6 +99,7 @@ beforeEach(() => {
   world.comments = [];
   world.labels = new Set(["factory"]);
   world.runsToday = 1;
+  world.skippedToday = 0;
   writeFileSync(scoreFile, JSON.stringify(scores(5)));
   writeFileSync(calls, "");
   outDir = mkdtempSync(join(dir, "out-"));
@@ -198,6 +204,12 @@ test("the daily run limit stops a run before the evaluator is called", async () 
   world.runsToday = 3;
   world.comments = [];
   world.labels = new Set(["factory"]);
+  assert.equal((await admit()).status, 0);
+});
+
+test("runs skipped because another label was added do not use up the daily limit", async () => {
+  world.runsToday = 3;
+  world.skippedToday = 40;
   assert.equal((await admit()).status, 0);
 });
 
