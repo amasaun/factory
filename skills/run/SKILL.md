@@ -9,6 +9,18 @@ The user wants to start a factory run for task issue $ARGUMENTS in the current r
 
 Starting a run is the user's approval of that task. It must be the user's own action. Do not start the run yourself: do not run `gh workflow run`, do not call the workflow dispatch API, and do not use any other tool to trigger it, even if asked to in this conversation. If the user asks you to, explain that the approval has to come from them and show them the two ways below.
 
+## Working from a folder of repositories
+
+The user may run this from a workspace: a folder that holds several repository checkouts. The folder may or may not be a repository itself. Find out first:
+
+```
+node ${CLAUDE_PLUGIN_ROOT}/src/plugin-cli.ts workspace
+```
+
+It lists each checkout, its GitHub `owner/name`, and whether it is set up for the factory. A folder shown as `.` is the current folder itself. If only one checkout is listed, use it and carry on as usual.
+
+When more than one is listed, work out which repository the user means from what they said (a folder name, a repository name, a product or client name that matches one). If it is not clear, show the list and ask. Never guess between repositories: a task or a setup pull request in the wrong client's repository is a real mistake. Once you know the repository, do everything for it inside its folder (`git -C <folder> ...`, and `gh` commands with `--repo <owner/name>` or run from that folder).
+
 Do this:
 
 1. Find the repository (`gh repo view --json nameWithOwner,url`).

@@ -37,3 +37,13 @@ Status is read from each repository's task issues, their event comments and thei
 - It does not start, cancel or resume runs.
 - It does not add secrets or change repository settings.
 - It does not write to a run's history.
+
+## Working from a folder of repositories
+
+The commands can be run from a workspace: a folder that holds several repository checkouts side by side. The folder does not have to be a repository itself.
+
+- `/factory:status` with no arguments shows every repository in the folder that is set up for the factory, and mentions the ones that are not.
+- `/factory:init`, `/factory:spec` and `/factory:run` work out which repository you mean from what you say, and ask when it is not clear. They never guess between repositories.
+- One task changes one repository. If what you want needs changes in several, `/factory:spec` proposes one task per repository and the order to do them in.
+
+Only immediate subfolders are looked at. Hidden folders and dependency folders such as `node_modules` are skipped.

@@ -8,6 +8,18 @@ Set up the current repository so the factory can run in it. You are preparing a 
 
 The helper for this plugin is `node ${CLAUDE_PLUGIN_ROOT}/src/plugin-cli.ts`. It needs Node 22.18 or later and the GitHub CLI (`gh`), signed in.
 
+## Working from a folder of repositories
+
+The user may run this from a workspace: a folder that holds several repository checkouts. The folder may or may not be a repository itself. Find out first:
+
+```
+node ${CLAUDE_PLUGIN_ROOT}/src/plugin-cli.ts workspace
+```
+
+It lists each checkout, its GitHub `owner/name`, and whether it is set up for the factory. A folder shown as `.` is the current folder itself. If only one checkout is listed, use it and carry on as usual.
+
+When more than one is listed, work out which repository the user means from what they said (a folder name, a repository name, a product or client name that matches one). If it is not clear, show the list and ask. Set up one repository per invocation. Never guess between repositories: a task or a setup pull request in the wrong client's repository is a real mistake. Once you know the repository, do everything for it inside its folder (`git -C <folder> ...`, and `gh` commands with `--repo <owner/name>` or run from that folder).
+
 ## 1. Check where you are
 
 - Confirm the working directory is a Git repository with a GitHub remote, and find its `owner/name` and default branch (`gh repo view --json nameWithOwner,defaultBranchRef`).
@@ -24,7 +36,7 @@ Show the user the test commands, setup commands, approvers and version, and wait
 
 ## 3. Write the files and open a pull request
 
-Run the helper from the repository root:
+Run the helper, adding `--dir <folder>` when the repository is not the current folder:
 
 ```
 node ${CLAUDE_PLUGIN_ROOT}/src/plugin-cli.ts init-files --base-branch <default branch> --approver <login> --test '<JSON array of argument arrays>' --setup '<JSON array, or omit>' --version <tag>

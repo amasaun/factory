@@ -11,7 +11,8 @@ Arguments, if any: $ARGUMENTS
 The helper for this plugin is `node ${CLAUDE_PLUGIN_ROOT}/src/plugin-cli.ts`. It reads GitHub through `gh` and changes nothing.
 
 - With repositories given as arguments, run `node ${CLAUDE_PLUGIN_ROOT}/src/plugin-cli.ts status --repo <owner/name>` once per repository (the flag can be repeated).
-- With no arguments, run `node ${CLAUDE_PLUGIN_ROOT}/src/plugin-cli.ts status`, which reads every registered repository. If none is registered, offer to register the current one with `repos add <owner/name>`, or to check just the current one with `--repo`.
+- With no arguments, first run `node ${CLAUDE_PLUGIN_ROOT}/src/plugin-cli.ts workspace`. If it shows more than one checkout, the user is in a workspace: run `node ${CLAUDE_PLUGIN_ROOT}/src/plugin-cli.ts status --workspace`, which reads every repository in this folder that is set up for the factory, and mention any checkouts that are not set up.
+- Otherwise run `node ${CLAUDE_PLUGIN_ROOT}/src/plugin-cli.ts status`, which reads every registered repository. If none is registered, offer to register the current one with `repos add <owner/name>`, or to check just the current one with `--repo`.
 - To manage the list: `repos list`, `repos add <owner/name>`, `repos remove <owner/name>`.
 
 Present the result to the user. Lead with what needs them, grouped by repository:

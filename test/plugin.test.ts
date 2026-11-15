@@ -10,6 +10,7 @@ import type { Task } from "../src/control/task.ts";
 import { Gh } from "../src/plugin/gh.ts";
 import { configFile, initProblems, workflowFile } from "../src/plugin/init.ts";
 import { attention, renderStatus, repoStatus } from "../src/plugin/status.ts";
+import { findRepos, githubRepo, renderWorkspace } from "../src/plugin/workspace.ts";
 import { parseConfig } from "../src/run/config.ts";
 import { ev, toReady } from "./helpers.ts";
 
@@ -193,11 +194,105 @@ test("the plugin manifest, marketplace entry and skills agree with each other", 
     assert.match(text, /^---\nname: /, s);
     // Every helper command a skill mentions exists.
     for (const m of text.matchAll(/plugin-cli\.ts (\w[\w-]*)/g)) {
-      assert.ok(["task", "init-files", "repos", "status"].includes(m[1]!), `${s}: ${m[1]}`);
+      assert.ok(["task", "init-files", "repos", "status", "workspace"].includes(m[1]!), `${s}: ${m[1]}`);
     }
   }
   // Starting a run is the person's approval, so the run skill must never be auto-invoked or told to dispatch.
   const run = readFileSync(join(root, "skills/run/SKILL.md"), "utf8");
   assert.match(run, /disable-model-invocation: true/);
   assert.match(run, /Do not start the run yourself/);
+});
+
+test("GitHub repository names are read from every usual remote spelling", () => {
+  for (const url of [
+    "https://github.com/olivo/web.git", "https://github.com/olivo/web", "https://github.com/olivo/web/",
+    "git@github.com:olivo/web.git", "ssh://git@github.com/olivo/web.git", "https://token@github.com/olivo/web.git\n",
+  ]) {
+    assert.equal(githubRepo(url), "olivo/web", url);
+  }
+  assert.equal(githubRepo("https://github.com/potstock/api.v2.git"), "potstock/api.v2");
+  for (const url of ["https://gitlab.com/olivo/web.git", "git@bitbucket.org:olivo/web.git", "https://github.com/olivo", "", "not a url"]) {
+    assert.equal(githubRepo(url), null, url);
+  }
+});
+
+const gitEnv = { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" };
+function makeWorkspace() {
+  const ws = mkdtempSync(join(dir, "workspace-"));
+  const mk = (name: string, remote: string | null, setUp: boolean) => {
+    const path = join(ws, name);
+    spawnSync("git", ["init", "-q", path], { env: gitEnv });
+    if (remote) spawnSync("git", ["-C", path, "remote", "add", "origin", remote], { env: gitEnv });
+    if (setUp) {
+      spawnSync("mkdir", ["-p", join(path, ".factory")]);
+      writeFileSync(join(path, ".factory/config.json"), "{}");
+    }
+  };
+  mk("olivo-web", "git@github.com:olivo/web.git", true);
+  mk("potstock-api", "https://github.com/potstock/api.git", false);
+  mk("scratch", null, false);
+  mk("acme-app", "https://github.com/acme/app.git", true);
+  mk(".hidden", "https://github.com/x/hidden.git", true);
+  mk("node_modules", "https://github.com/x/deps.git", true);
+  spawnSync("mkdir", ["-p", join(ws, "notes")]);
+  writeFileSync(join(ws, "README.md"), "workspace");
+  return ws;
+}
+
+test("a folder of repositories is read as a workspace", () => {
+  const ws = makeWorkspace();
+  const repos = findRepos(ws);
+  assert.deepEqual(repos.map((r) => [r.folder, r.repo, r.setUp]), [
+    ["acme-app", "acme/app", true],
+    ["olivo-web", "olivo/web", true],
+    ["potstock-api", "potstock/api", false],
+    ["scratch", null, false],
+  ]);
+  const text = renderWorkspace(repos);
+  assert.ok(text.includes("| potstock-api | potstock/api | no |"));
+  assert.ok(text.includes("| scratch | (no GitHub remote) |  |"));
+  assert.ok(text.includes("2 of 4 repositories are set up."));
+  // Inside one repository, only that repository is reported.
+  assert.deepEqual(findRepos(join(ws, "olivo-web")).map((r) => [r.folder, r.repo]), [[".", "olivo/web"]]);
+  assert.equal(renderWorkspace(findRepos(join(ws, "notes"))), "No repository checkouts found here.");
+});
+
+test("a workspace folder that is itself a repository lists itself and the checkouts inside it", () => {
+  const ws = makeWorkspace();
+  spawnSync("git", ["init", "-q", ws], { env: gitEnv });
+  spawnSync("git", ["-C", ws, "remote", "add", "origin", "https://github.com/me/workspace.git"], { env: gitEnv });
+  assert.deepEqual(findRepos(ws).map((r) => [r.folder, r.repo]), [
+    [".", "me/workspace"],
+    ["acme-app", "acme/app"],
+    ["olivo-web", "olivo/web"],
+    ["potstock-api", "potstock/api"],
+    ["scratch", null],
+  ]);
+});
+
+test("status in a workspace reads the repositories that are set up there", { skip: !hasJq }, () => {
+  const ws = makeWorkspace();
+  const listed = cli(["workspace", "--dir", ws]);
+  assert.equal(listed.status, 0, listed.stderr);
+  assert.ok(listed.stdout.includes("| olivo-web | olivo/web | yes |"));
+  const out = cli(["status", "--workspace", "--dir", ws], { FACTORY_GH: fakeGh, FACTORY_REGISTRY: join(dir, "unused.json") });
+  assert.equal(out.status, 0, out.stderr);
+  // acme/app has fixtures; olivo/web is set up but unknown to the stand-in gh, so it is reported, not dropped.
+  assert.ok(out.stdout.includes("## acme/app"));
+  assert.ok(out.stdout.includes("| #5 | Stopped for a person | needs-human |"));
+  assert.ok(out.stdout.includes("## olivo/web"));
+  assert.ok(out.stdout.includes("Could not read this repository"));
+  assert.ok(!out.stdout.includes("potstock/api"));
+  const none = cli(["status", "--workspace", "--dir", join(ws, "notes")], { FACTORY_GH: fakeGh });
+  assert.equal(none.status, 1);
+  assert.match(none.stderr, /No repository in this folder is set up/);
+});
+
+test("init-files can set up a repository from the workspace folder", () => {
+  const ws = makeWorkspace();
+  const out = cli(["init-files", "--dir", join(ws, "potstock-api"), "--base-branch", "main", "--approver", "owner", "--test", '[["npm","test"]]', "--version", "v0.1.0"]);
+  assert.equal(out.status, 0, out.stderr);
+  assert.ok(existsSync(join(ws, "potstock-api", ".github/workflows/factory.yml")));
+  assert.ok(!existsSync(join(ws, ".factory")));
+  assert.equal(findRepos(ws).find((r) => r.folder === "potstock-api")?.setUp, true);
 });
