@@ -23,9 +23,22 @@ import { runBuilder } from "./run/builder.ts";
 import { MAX_HANDOFFS, type RepoConfig, parseConfig } from "./run/config.ts";
 import { type Attempt, type StageResult, admissionEvents, planEvents } from "./run/plan.ts";
 import { allowedBashRules, builderPrompt, clipFeedback, handoffSection, judgePrompt, pullRequestBody, pullRequestTitle } from "./run/render.ts";
+import { type SessionUsage, readUsage, usageSection } from "./run/usage.ts";
 import { type Decision, type Verdict, decide, verdictProblems } from "./run/verdict.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+
+/**
+ * Environment for the model CLI. Whichever credential the repository supplied
+ * is passed on; an empty variable is removed, because the CLI treats an API key
+ * that is present but empty as the credential to use.
+ */
+function modelEnv(): NodeJS.ProcessEnv {
+  const e = { ...process.env };
+  for (const key of ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"]) if (!e[key]) delete e[key];
+  if (!e.ANTHROPIC_API_KEY && !e.CLAUDE_CODE_OAUTH_TOKEN) throw new Error("no model credential is available to this job");
+  return e;
+}
 
 function env(name: string): string {
   const v = process.env[name];
@@ -174,10 +187,11 @@ const commands: Record<string, () => Promise<void> | void> = {
         "--tools", "Read,Edit,Write,Glob,Grep,Bash",
         "--allowedTools", "Read", "Edit", "Write", "Glob", "Grep", ...rules,
         "--model", env("MODEL"), "--max-turns", "40", "--no-session-persistence",
+        "--max-budget-usd", String(config.builderUsd),
         "--output-format", "stream-json", "--verbose",
       ],
       cwd: repoDir,
-      env: process.env,
+      env: modelEnv(),
       prompt,
       // The working tree is read with plain git here: it belongs to the worker, and nothing in it is trusted.
       handoffPrompt: (n) => prompt + handoffSection(n, spawnSync("git", ["status", "--porcelain"], { cwd: repoDir, encoding: "utf8" }).stdout ?? ""),
@@ -253,6 +267,34 @@ const commands: Record<string, () => Promise<void> | void> = {
     writeFileSync(outFile("judge-prompt.md"), judgePrompt(template, admitted.task, diff, randomUUID()));
   },
 
+  /** Run the judge: read-only tools, the base commit as its working directory, the diff as data in its prompt. */
+  judge() {
+    const repoDir = env("FACTORY_REPO_DIR");
+    const config = configAt(repoDir, readAdmitted().base);
+    const r = spawnSync(
+      process.env.FACTORY_CLAUDE || "claude",
+      [
+        "-p", "--safe-mode", "--permission-prompts", "none",
+        "--tools", "Read,Glob,Grep", "--allowedTools", "Read", "Glob", "Grep",
+        "--model", env("MODEL"), "--max-turns", "30", "--no-session-persistence",
+        "--max-budget-usd", String(config.judgeUsd),
+        "--output-format", "json",
+        "--json-schema", readFileSync(join(ROOT, "schemas/verdict.schema.json"), "utf8"),
+      ],
+      {
+        cwd: repoDir,
+        env: modelEnv(),
+        input: readFileSync(join(env("FACTORY_OUT"), "judge-prompt.md"), "utf8"),
+        encoding: "utf8",
+        maxBuffer: 64 * 1024 * 1024,
+        stdio: ["pipe", "pipe", "inherit"],
+      },
+    );
+    writeFileSync(outFile("judge-result.json"), r.stdout ?? "");
+    if (r.error) throw r.error;
+    if (r.status !== 0) throw new Error(`the judge exited with ${r.status ?? r.signal}`);
+  },
+
   /** Read the judge's output and say what it means for the run. Runs in the judge job, which executes no repository code. */
   decide() {
     const admitted = readAdmitted();
@@ -286,6 +328,14 @@ const commands: Record<string, () => Promise<void> | void> = {
       const maxAttempts = 1 + config.repairRounds;
       const attempts: Attempt[] = [];
       const verdicts: (Verdict | undefined)[] = [];
+      const usage: SessionUsage[] = [];
+      const readJson = (path: string): unknown => {
+        try {
+          return JSON.parse(readFileSync(path, "utf8"));
+        } catch {
+          return null;
+        }
+      };
       for (let n = 1; n <= maxAttempts; n++) {
         const get = (key: string) => process.env[`A${n}_${key}`] || undefined;
         // If the attempt's jobs failed outright, its outputs may be missing; its overall result still says so.
@@ -310,6 +360,8 @@ const commands: Record<string, () => Promise<void> | void> = {
           verdicts[n - 1] = d.decision === "accept" ? d.verdict : undefined;
         }
         attempts.push(a);
+        usage.push(readUsage("builder", n, readJson(art(`builder-log-${n}`, "builder-result.json"))));
+        if (existsSync(verdictPath)) usage.push(readUsage("judge", n, readJson(verdictPath)));
       }
 
       const plan = planEvents({
@@ -355,6 +407,7 @@ const commands: Record<string, () => Promise<void> | void> = {
           testCommands: config.commands.test,
           runUrl,
           attempt: plan.publishAttempt! + 1,
+          usage: usageSection(usage),
         }),
       });
       await record(ledger, taskId, [

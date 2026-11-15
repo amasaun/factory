@@ -35,8 +35,13 @@ on:
         type: string
         default: opus
     secrets:
+      # Supply one of these. If both are set, the API key is used.
       CLAUDE_CODE_OAUTH_TOKEN:
-        required: true
+        description: Claude subscription token from `claude setup-token`
+        required: false
+      ANTHROPIC_API_KEY:
+        description: Anthropic API key, billed per use
+        required: false
     outputs:
       build:
         value: ${{ jobs.build.result }}
@@ -120,6 +125,7 @@ jobs:
       - name: Build
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           MODEL: ${{ inputs.builder_model }}
         run: |
           node "$FACTORY_ROOT/src/cli.ts" build || status=$?
@@ -274,16 +280,12 @@ jobs:
       - run: node "$FACTORY_ROOT/src/cli.ts" judge-prompt
       - run: npm install -g @anthropic-ai/claude-code@latest
       - name: Judge
-        working-directory: repo
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           MODEL: ${{ inputs.judge_model }}
         run: |
-          claude -p --safe-mode --permission-prompts none \
-            --tools "Read,Glob,Grep" --allowedTools "Read" "Glob" "Grep" \
-            --model "$MODEL" --max-turns 30 --no-session-persistence --output-format json \
-            --json-schema "$(cat "$FACTORY_ROOT/schemas/verdict.schema.json")" \
-            < "$FACTORY_OUT/judge-prompt.md" > "$FACTORY_OUT/judge-result.json" || status=$?
+          node "$FACTORY_ROOT/src/cli.ts" judge || status=$?
           node "$FACTORY_ROOT/src/cli.ts" show-result judge-result.json
           exit "${status:-0}"
       - id: decide

@@ -96,6 +96,8 @@ export function pullRequestBody(e: {
   runUrl: string;
   /** Which attempt was accepted, counting from 1. */
   attempt: number;
+  /** Markdown describing model usage for the run. */
+  usage: string;
 }): string {
   const criteria = e.task.acceptance
     .map((c) => {
@@ -131,6 +133,10 @@ export function pullRequestBody(e: {
     "## Findings",
     "",
     findings,
+    "",
+    "## Model usage",
+    "",
+    e.usage,
     "",
     "## Identity",
     "",

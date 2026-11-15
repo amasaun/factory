@@ -26,8 +26,13 @@ on:
         type: string
         default: "github-actions[bot]"
     secrets:
+      # Supply one of these. If both are set, the API key is used.
       CLAUDE_CODE_OAUTH_TOKEN:
-        required: true
+        description: Claude subscription token from `claude setup-token`
+        required: false
+      ANTHROPIC_API_KEY:
+        description: Anthropic API key, billed per use
+        required: false
 
 permissions: {}
 
@@ -54,13 +59,13 @@ jobs:
           path: repo
           persist-credentials: false
       - uses: amasaun/factory/actions/setup@main
-      - name: Check that the model credential is configured
+      - name: Check that a model credential is configured
         # Only a yes/no reaches this job; the credential itself does not.
         env:
-          HAS_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
+          HAS_CREDENTIAL: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' || secrets.ANTHROPIC_API_KEY != '' }}
         run: |
-          if [ "$HAS_TOKEN" != "true" ]; then
-            echo "::error::The repository secret CLAUDE_CODE_OAUTH_TOKEN is missing or empty. Add it under Settings > Secrets and variables > Actions > Repository secrets. Nothing was recorded for this task, so it can be started again."
+          if [ "$HAS_CREDENTIAL" != "true" ]; then
+            echo "::error::No model credential reached this workflow. Add CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY under Settings > Secrets and variables > Actions > Repository secrets, and pass it in the calling workflow's 'secrets:' block. Nothing was recorded for this task, so it can be started again."
             exit 1
           fi
       - id: admit
@@ -106,6 +111,7 @@ jobs:
       judge_model: ${{ inputs.judge_model }}
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 
   attempt2:
     needs: [admit, attempt1]
@@ -123,6 +129,7 @@ jobs:
       judge_model: ${{ inputs.judge_model }}
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 
   attempt3:
     needs: [admit, attempt1, attempt2]
@@ -140,6 +147,7 @@ jobs:
       judge_model: ${{ inputs.judge_model }}
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 
   finish: # trusted, the only job that can write
     needs: [admit, baseline, attempt1, attempt2, attempt3]

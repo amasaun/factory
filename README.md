@@ -25,6 +25,7 @@ Early. A first pipeline exists that takes one approved task issue to a draft pul
 | Pipeline: admit, baseline, build, freeze, verify, judge, publish (`.github/workflows/run.yml`, `attempt.yml`) | Implemented; one task has been taken from issue to merged pull request on the practice repository |
 | Repair loop: a failed attempt goes back to the builder with the reasons (spec §9, §13) | Implemented; every sequence of attempt outcomes is tested against the state machine, and the repair path has been exercised locally but not yet on GitHub |
 | Context handoff: a builder that passes its context limit is stopped and a fresh one continues | Implemented; tested against a stand-in for the model CLI, not yet triggered on a real run |
+| Either model credential (API key or subscription token), per-session spending caps, model usage in the pull request, numbered releases | Implemented; the spending cap and credential handling are checked locally, the rest by tests |
 | Resume, hidden scenarios, mutation gates, CI observation, review feedback, plugin | Not started |
 
 ## Layout
@@ -50,6 +51,8 @@ src/run/
   verdict.ts            validation and reading of the judge's verdict
   render.ts             prompts and pull request body
   builder.ts            runs the builder, watches its context size and hands off
+  usage.ts              model usage for the pull request
+scripts/release.sh      create a numbered release
 src/cli.ts              entry points for the pipeline's jobs
 prompts/                builder and judge prompts
 actions/setup/          makes the factory's code available to a job

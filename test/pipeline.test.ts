@@ -194,7 +194,7 @@ test("untrusted text in the pull request body cannot break out of its fence", ()
   assert.equal(fenced("a ~~~~ b\n~~~\n@someone <img>"), "~~~text\na ~~ b\n~~\n@someone <img>\n~~~");
   const body = pullRequestBody({
     task, issue: 5, taskDigest: "sha256:x", base: "b".repeat(40), candidate: C, tree: "d".repeat(40),
-    changedPaths: ["src/truncate.js"], testCommands: [["node", "--test"]], runUrl: "https://example.invalid/run/1", attempt: 2,
+    changedPaths: ["src/truncate.js"], testCommands: [["node", "--test"]], runUrl: "https://example.invalid/run/1", attempt: 2, usage: "USAGE-TABLE",
     verdict: { ...good, criteria: [{ ...good.criteria[0]!, reasoning: "~~~\n# Injected heading" }, good.criteria[1]!] },
   });
   assert.ok(body.startsWith("Task: #5"));
@@ -202,6 +202,7 @@ test("untrusted text in the pull request body cannot break out of its fence", ()
   assert.equal(fences % 2, 0);
   assert.ok(body.includes("Not performed in this pipeline version"));
   assert.ok(body.includes("Accepted on attempt 2"));
+  assert.ok(body.includes("## Model usage\n\nUSAGE-TABLE"));
 });
 
 test("repository policy is validated", () => {
@@ -213,6 +214,13 @@ test("repository policy is validated", () => {
   assert.equal(parseConfig(JSON.stringify({ ...ok, budget: { repairRounds: 2 } })).repairRounds, 2);
   for (const bad of [3, -1, 1.5, "1"]) {
     assert.throws(() => parseConfig(JSON.stringify({ ...ok, budget: { repairRounds: bad } })), /repairRounds/);
+  }
+  assert.equal(parseConfig(JSON.stringify(ok)).builderUsd, 1);
+  assert.equal(parseConfig(JSON.stringify(ok)).judgeUsd, 0.5);
+  assert.equal(parseConfig(JSON.stringify({ ...ok, budget: { builderUsd: 0.25, judgeUsd: 2 } })).builderUsd, 0.25);
+  for (const bad of [0, -1, 51, "1"]) {
+    assert.throws(() => parseConfig(JSON.stringify({ ...ok, budget: { builderUsd: bad } })), /builderUsd/);
+    assert.throws(() => parseConfig(JSON.stringify({ ...ok, budget: { judgeUsd: bad } })), /judgeUsd/);
   }
   assert.throws(() => parseConfig("{"), /does not parse/);
   assert.throws(() => parseConfig(JSON.stringify({ ...ok, approvers: [] })), /approvers/);
