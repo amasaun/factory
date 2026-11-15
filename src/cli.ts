@@ -164,7 +164,11 @@ const commands: Record<string, () => Promise<void> | void> = {
       if (r.error) throw r.error;
       if (r.status !== 0) throw new Error(`the ticket evaluator exited with ${r.status ?? r.signal}`);
       try {
-        modelOutput = (JSON.parse(r.stdout) as { structured_output?: unknown }).structured_output;
+        const result = JSON.parse(r.stdout) as { structured_output?: unknown };
+        modelOutput = result.structured_output;
+        const u = readUsage("evaluator", 0, result);
+        const spend = u.usd === null ? "not reported" : `${u.usd.toFixed(4)} US dollars`;
+        console.log(`Ticket evaluator: ${u.models.join(", ") || "model not reported"}, estimated spend ${spend}.`);
       } catch {
         modelOutput = null;
       }

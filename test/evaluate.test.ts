@@ -63,6 +63,10 @@ test("a missing piece fails its area whatever the scorer says", () => {
   assert.match(e.areas.testCases.reason, /no test cases/);
   assert.equal(e.passed, false);
   assert.equal(failsWithoutModel(t, "acme/app"), true);
+  // When the model was not asked, areas it would have scored say why, without blaming the evaluator.
+  const unasked = evaluateTicket(t, "acme/app", null, T);
+  assert.match(unasked.areas.readiness.reason, /not scored, because the ticket is missing/);
+  assert.match(evaluateTicket(fullTask(), "acme/app", null, T).areas.readiness.reason, /returned no usable score/);
 });
 
 test("unusable scorer output scores the minimum and never passes", () => {
