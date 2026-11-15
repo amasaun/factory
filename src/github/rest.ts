@@ -74,11 +74,13 @@ export class GitHub implements IssueComments, PullRequests {
     return res.status === 204 ? null : res.json();
   }
 
-  async #paged(path: string): Promise<unknown[]> {
+  /** Every item of a paged list. `key` names the array for endpoints that wrap their list in an object. */
+  async #paged(path: string, key?: string): Promise<unknown[]> {
     const all: unknown[] = [];
     const join = path.includes("?") ? "&" : "?";
     for (let page = 1; page <= MAX_PAGES; page++) {
-      const batch = (await this.#request("GET", `${path}${join}per_page=${PAGE}&page=${page}`)) as unknown[];
+      const body = await this.#request("GET", `${path}${join}per_page=${PAGE}&page=${page}`);
+      const batch = (key ? ((body as Record<string, unknown>)[key] ?? []) : body) as unknown[];
       all.push(...batch);
       if (batch.length < PAGE) return all;
     }
@@ -105,13 +107,17 @@ export class GitHub implements IssueComments, PullRequests {
     }
   }
 
-  /** How many runs of one workflow file were created on or after a date (YYYY-MM-DD, UTC). */
+  /**
+   * How many runs of one workflow file were created on or after a date
+   * (YYYY-MM-DD, UTC) and actually ran. A label that is not the factory's still
+   * creates a run, which is skipped at once; those do not count.
+   */
   async countWorkflowRuns(workflowFile: string, since: string): Promise<number> {
-    const r = (await this.#request(
-      "GET",
-      `/actions/workflows/${encodeURIComponent(workflowFile)}/runs?per_page=1&created=${encodeURIComponent(`>=${since}`)}`,
-    )) as { total_count?: number };
-    return r.total_count ?? 0;
+    const runs = (await this.#paged(
+      `/actions/workflows/${encodeURIComponent(workflowFile)}/runs?created=${encodeURIComponent(`>=${since}`)}`,
+      "workflow_runs",
+    )) as { conclusion: string | null }[];
+    return runs.filter((r) => r.conclusion !== "skipped").length;
   }
 
   // IssueComments
