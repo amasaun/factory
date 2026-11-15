@@ -24,6 +24,7 @@ Early. A first pipeline exists that takes one approved task issue to a draft pul
 | GitHub REST client and task-issue format | Implemented; tested against a local fake API server, not the real API |
 | Pipeline: admit, baseline, build, freeze, verify, judge, publish (`.github/workflows/run.yml`, `attempt.yml`) | Implemented; one task has been taken from issue to merged pull request on the practice repository |
 | Repair loop: a failed attempt goes back to the builder with the reasons (spec §9, §13) | Implemented; every sequence of attempt outcomes is tested against the state machine, and the repair path has been exercised locally but not yet on GitHub |
+| Context handoff: a builder that passes its context limit is stopped and a fresh one continues | Implemented; tested against a stand-in for the model CLI, not yet triggered on a real run |
 | Resume, hidden scenarios, mutation gates, CI observation, review feedback, plugin | Not started |
 
 ## Layout
@@ -48,6 +49,7 @@ src/run/
   plan.ts               events to record for a run's outcome
   verdict.ts            validation and reading of the judge's verdict
   render.ts             prompts and pull request body
+  builder.ts            runs the builder, watches its context size and hands off
 src/cli.ts              entry points for the pipeline's jobs
 prompts/                builder and judge prompts
 actions/setup/          makes the factory's code available to a job
@@ -73,3 +75,7 @@ npm test
 ```bash
 npm run typecheck
 ```
+
+## License
+
+MIT. See [LICENSE](LICENSE).

@@ -13,11 +13,11 @@ This describes the current pipeline version. It takes one approved task issue an
      "approvers": ["your-login"],
      "commands": { "setup": [], "test": [["node", "--test"]] },
      "extraProtected": [],
-     "budget": { "repairRounds": 1 }
+     "budget": { "repairRounds": 1, "handoffTokens": 150000 }
    }
    ```
 
-   Commands are argument arrays and run without a shell. `budget.repairRounds` is optional: 0, 1 or 2, default 1.
+   Commands are argument arrays and run without a shell. Both `budget` settings are optional: `repairRounds` is 0, 1 or 2 (default 1), and `handoffTokens` is at least 20000 (default 150000).
 
 2. Commit a workflow that calls the factory, for example `.github/workflows/factory.yml`:
 
@@ -93,6 +93,16 @@ Rules that keep repair from wasting runs:
 - When the attempts allowed by `budget.repairRounds` are used up, the run stops in `needs-human`.
 
 Each attempt's candidate is a single commit on top of the base, so only the accepted attempt's changes appear in the pull request.
+
+## Context handoff
+
+A long builder session costs more on every turn, because the whole conversation is read again each time, and its work gets less reliable. Keeping tasks small is the real fix. As a backstop, the pipeline watches how much context the builder has used:
+
+- The limit is `budget.handoffTokens`, or half the model's context window if that is lower.
+- When a builder passes the limit it is stopped before its next action. A fresh builder then starts with the full task, the list of files changed so far, and those changes in the working tree, and is told to continue, not start over.
+- After two handoffs in one attempt the run stops and reports that the task is too large and should be split.
+
+A handoff happens inside one attempt and does not use up a repair round. On a small task it never triggers and costs nothing. The judge is a single read-only pass and is not monitored.
 
 ## Cost
 

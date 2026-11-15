@@ -19,9 +19,10 @@ import { GitHub } from "./github/rest.ts";
 import { type FrozenCandidate, intakeCandidate } from "./publisher/candidate.ts";
 import { git } from "./publisher/git.ts";
 import { ensurePullRequest, pushCandidate } from "./publisher/publish.ts";
-import { type RepoConfig, parseConfig } from "./run/config.ts";
+import { runBuilder } from "./run/builder.ts";
+import { MAX_HANDOFFS, type RepoConfig, parseConfig } from "./run/config.ts";
 import { type Attempt, type StageResult, admissionEvents, planEvents } from "./run/plan.ts";
-import { allowedBashRules, builderPrompt, clipFeedback, judgePrompt, pullRequestBody, pullRequestTitle } from "./run/render.ts";
+import { allowedBashRules, builderPrompt, clipFeedback, handoffSection, judgePrompt, pullRequestBody, pullRequestTitle } from "./run/render.ts";
 import { type Decision, type Verdict, decide, verdictProblems } from "./run/verdict.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -159,6 +160,39 @@ const commands: Record<string, () => Promise<void> | void> = {
     writeFileSync(outFile("commit-message.txt"), `${pullRequestTitle(admitted.task)}\n\nTask: #${admitted.issue}\n`);
   },
 
+  /** Run the builder, handing off to a fresh one if its context grows past the limit. Worker jobs only. */
+  async build() {
+    const admitted = readAdmitted();
+    const repoDir = env("FACTORY_REPO_DIR");
+    const config = configAt(repoDir, admitted.base);
+    const prompt = readFileSync(join(env("FACTORY_OUT"), "builder-prompt.md"), "utf8");
+    const rules = readFileSync(join(env("FACTORY_OUT"), "builder-allowed.txt"), "utf8").split("\n").filter(Boolean);
+    const report = await runBuilder({
+      command: process.env.FACTORY_CLAUDE || "claude",
+      args: [
+        "-p", "--safe-mode", "--permission-mode", "acceptEdits", "--permission-prompts", "none",
+        "--tools", "Read,Edit,Write,Glob,Grep,Bash",
+        "--allowedTools", "Read", "Edit", "Write", "Glob", "Grep", ...rules,
+        "--model", env("MODEL"), "--max-turns", "40", "--no-session-persistence",
+        "--output-format", "stream-json", "--verbose",
+      ],
+      cwd: repoDir,
+      env: process.env,
+      prompt,
+      // The working tree is read with plain git here: it belongs to the worker, and nothing in it is trusted.
+      handoffPrompt: (n) => prompt + handoffSection(n, spawnSync("git", ["status", "--porcelain"], { cwd: repoDir, encoding: "utf8" }).stdout ?? ""),
+      tokenLimit: config.handoffTokens,
+      maxHandoffs: MAX_HANDOFFS,
+      log: (line) => console.log(line),
+    });
+    writeFileSync(
+      outFile("builder-result.json"),
+      JSON.stringify({ ...(report.result ?? {}), factory: { segments: report.segments, handoffs: report.handoffs, limit: report.limit, failure: report.failure } }, null, 2),
+    );
+    summary(`Builder: ${report.segments.length} session(s), ${report.handoffs} handoff(s), peak context ${Math.max(...report.segments.map((s) => s.peak))} of ${report.limit} tokens.`);
+    if (report.failure) throw new Error(report.failure);
+  },
+
   freeze() {
     const admitted = readAdmitted();
     const attempt = attemptNumber();
@@ -204,7 +238,7 @@ const commands: Record<string, () => Promise<void> | void> = {
     try {
       const r = JSON.parse(text) as Record<string, unknown>;
       const brief: Record<string, unknown> = {};
-      for (const k of ["subtype", "is_error", "num_turns", "total_cost_usd", "modelUsage"]) if (k in r) brief[k] = r[k];
+      for (const k of ["subtype", "is_error", "num_turns", "total_cost_usd", "modelUsage", "factory"]) if (k in r) brief[k] = r[k];
       console.log(JSON.stringify(brief));
       console.log(typeof r.structured_output === "object" ? JSON.stringify(r.structured_output, null, 2) : String(r.result ?? "(no result text)"));
     } catch {

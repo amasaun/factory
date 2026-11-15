@@ -12,10 +12,19 @@ export interface RepoConfig {
    * round costs another builder run and usually another judge run. 0 to 2.
    */
   repairRounds: number;
+  /**
+   * Context size, in tokens, at which the builder is stopped and a fresh one
+   * continues. Half the model's context window applies as well if it is lower.
+   */
+  handoffTokens: number;
 }
 
 export const DEFAULT_REPAIR_ROUNDS = 1;
 export const MAX_REPAIR_ROUNDS = 2;
+export const DEFAULT_HANDOFF_TOKENS = 150_000;
+export const MIN_HANDOFF_TOKENS = 20_000;
+/** A builder that needs more handoffs than this is working on a task that should be split. */
+export const MAX_HANDOFFS = 2;
 
 const isArgv = (v: unknown): v is string[] =>
   Array.isArray(v) && v.length > 0 && v.every((s) => typeof s === "string" && s.length > 0);
@@ -44,6 +53,10 @@ export function parseConfig(text: string): RepoConfig {
   if (!Number.isInteger(repairRounds) || (repairRounds as number) < 0 || (repairRounds as number) > MAX_REPAIR_ROUNDS) {
     problems.push(`budget.repairRounds must be an integer from 0 to ${MAX_REPAIR_ROUNDS}`);
   }
+  const handoffTokens = budget.handoffTokens ?? DEFAULT_HANDOFF_TOKENS;
+  if (!Number.isInteger(handoffTokens) || (handoffTokens as number) < MIN_HANDOFF_TOKENS) {
+    problems.push(`budget.handoffTokens must be an integer of at least ${MIN_HANDOFF_TOKENS}`);
+  }
   if (problems.length) throw new Error(`.factory/config.json is invalid: ${problems.join("; ")}`);
   return {
     version: 1,
@@ -52,5 +65,6 @@ export function parseConfig(text: string): RepoConfig {
     commands: { setup: (commands!.setup ?? []) as string[][], test: commands!.test as string[][] },
     extraProtected: (raw.extraProtected ?? []) as string[],
     repairRounds: repairRounds as number,
+    handoffTokens: handoffTokens as number,
   };
 }
