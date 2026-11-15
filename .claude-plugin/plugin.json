@@ -1,0 +1,8 @@
+{
+  "name": "factory",
+  "description": "Set up repositories for the factory, write tasks for it, and see every run in one place.",
+  "version": "0.2.0",
+  "author": { "name": "amasaun" },
+  "repository": "https://github.com/amasaun/factory",
+  "license": "MIT"
+}

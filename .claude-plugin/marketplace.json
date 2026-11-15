@@ -1,0 +1,11 @@
+{
+  "name": "amasaun-factory",
+  "owner": { "name": "amasaun" },
+  "plugins": [
+    {
+      "name": "factory",
+      "source": "./",
+      "description": "Set up repositories for the factory, write tasks for it, and see every run in one place."
+    }
+  ]
+}
