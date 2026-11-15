@@ -58,7 +58,7 @@ jobs:
         with:
           path: repo
           persist-credentials: false
-      - uses: amasaun/factory/actions/setup@main
+      - uses: amasaun/factory/actions/setup@v0.1.0
       - name: Check that a model credential is configured
         # Only a yes/no reaches this job; the credential itself does not.
         env:
@@ -92,7 +92,7 @@ jobs:
           ref: ${{ needs.admit.outputs.base }}
           path: repo
           persist-credentials: false
-      - uses: amasaun/factory/actions/setup@main
+      - uses: amasaun/factory/actions/setup@v0.1.0
       - run: node "$FACTORY_ROOT/src/cli.ts" verify
         env:
           FACTORY_BASE: ${{ needs.admit.outputs.base }}
@@ -102,7 +102,7 @@ jobs:
     needs: [admit, baseline]
     permissions:
       contents: read
-    uses: amasaun/factory/.github/workflows/attempt.yml@main
+    uses: amasaun/factory/.github/workflows/attempt.yml@v0.1.0
     with:
       issue: ${{ inputs.issue }}
       attempt: 1
@@ -118,7 +118,7 @@ jobs:
     if: needs.attempt1.outputs.next == 'repair' && fromJSON(needs.admit.outputs.max_attempts) >= 2
     permissions:
       contents: read
-    uses: amasaun/factory/.github/workflows/attempt.yml@main
+    uses: amasaun/factory/.github/workflows/attempt.yml@v0.1.0
     with:
       issue: ${{ inputs.issue }}
       attempt: 2
@@ -136,7 +136,7 @@ jobs:
     if: needs.attempt2.outputs.next == 'repair' && fromJSON(needs.admit.outputs.max_attempts) >= 3
     permissions:
       contents: read
-    uses: amasaun/factory/.github/workflows/attempt.yml@main
+    uses: amasaun/factory/.github/workflows/attempt.yml@v0.1.0
     with:
       issue: ${{ inputs.issue }}
       attempt: 3
@@ -166,7 +166,7 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           path: factory-in
-      - uses: amasaun/factory/actions/setup@main
+      - uses: amasaun/factory/actions/setup@v0.1.0
       - run: node "$FACTORY_ROOT/src/cli.ts" finish
         env:
           GITHUB_TOKEN: ${{ github.token }}
