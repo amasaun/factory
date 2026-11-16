@@ -1,0 +1,104 @@
+{
+  "id": "vague-acceptance",
+  "why": "The criteria have the Given / When / Then words but say nothing checkable: no status code, no error body, no definition of a bad username. \"Handled correctly\" is exactly what the rubric says to refuse. The builder would have to invent the contract.",
+  "repository": "acme/api",
+  "task": {
+    "summary": "Make POST /signup reject a missing, empty or whitespace-only username with a 422 response and a machine-readable error, instead of creating an account with a blank username.",
+    "story": {
+      "role": "a support agent investigating accounts that cannot be found by name",
+      "want": "signup to refuse blank usernames",
+      "benefit": "no more accounts are created that nobody can search for or sign in to"
+    },
+    "repository": "acme/api",
+    "impactedAreas": [
+      {
+        "area": "Web signup form",
+        "impact": "Receives a new 422 error with code \"username_required\". It already shows the message field of 422 errors, so no change is needed, but the web team should confirm the wording."
+      },
+      {
+        "area": "Mobile app (iOS and Android)",
+        "impact": "Same new error. Versions before 4.2 show a generic failure for unknown error codes, which is acceptable."
+      },
+      {
+        "area": "Existing accounts with blank usernames",
+        "impact": "Not changed by this task. Cleaning them up is separate work."
+      }
+    ],
+    "goal": "Validate the username in the signup handler before any database write, and return a consistent error for blank values.",
+    "acceptance": [
+      {
+        "id": "AC-1",
+        "behavior": "Bad usernames are handled correctly.",
+        "gherkin": "Given a user signs up\nWhen the username is not valid\nThen the request is handled correctly and an appropriate error is shown",
+        "evidence": "handler test"
+      },
+      {
+        "id": "AC-2",
+        "behavior": "Good usernames still work.",
+        "gherkin": "Given a user signs up\nWhen the username is fine\nThen signup works as expected",
+        "evidence": "handler test"
+      }
+    ],
+    "testCases": [
+      {
+        "id": "T-1",
+        "description": "POST /signup with username \"\" and \"   \" returns an error.",
+        "covers": [
+          "AC-1"
+        ]
+      },
+      {
+        "id": "T-2",
+        "description": "POST /signup with username \"ada\" succeeds.",
+        "covers": [
+          "AC-2"
+        ]
+      }
+    ],
+    "scenarios": {
+      "omitted": "Hidden scenarios are not implemented yet."
+    },
+    "nonGoals": [
+      "Rules about which characters a username may contain, or its length",
+      "Uniqueness checks, which already exist",
+      "Fixing accounts already created with blank usernames",
+      "Changing the error format of other endpoints"
+    ],
+    "scope": {
+      "components": [
+        "signup handler"
+      ],
+      "permitted": [
+        "src/handlers/signup.js",
+        "test/handlers/signup.test.js"
+      ],
+      "forbidden": [
+        "src/db/**",
+        "src/handlers/login.js",
+        "migrations/**"
+      ]
+    },
+    "risk": {
+      "level": "medium",
+      "concerns": [
+        "Public endpoint behaviour changes for clients sending blank usernames"
+      ]
+    },
+    "context": [
+      "src/handlers/signup.js",
+      "test/handlers/signup.test.js",
+      "src/errors.js"
+    ],
+    "reuse": [
+      "The validationError(code, message) helper in src/errors.js, which already produces the 422 error shape used by the email and password checks"
+    ],
+    "approach": "Add the check at the top of the handler, before the existing validation, using the existing validationError helper."
+  },
+  "expect": {
+    "outcome": "fail",
+    "weakAreas": [
+      "acceptance",
+      "readiness"
+    ]
+  }
+}

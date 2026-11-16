@@ -6,8 +6,7 @@
  */
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { digest } from "./control/digest.ts";
@@ -22,7 +21,8 @@ import { git } from "./publisher/git.ts";
 import { ensurePullRequest, pushCandidate } from "./publisher/publish.ts";
 import { runBuilder } from "./run/builder.ts";
 import { MAX_HANDOFFS, type RepoConfig, parseConfig } from "./run/config.ts";
-import { EVALUATION_SCHEMA, evaluateTicket, evaluationComment, evaluationPrompt, failsWithoutModel } from "./run/evaluate.ts";
+import { askEvaluator } from "./run/ask-evaluator.ts";
+import { evaluateTicket, evaluationComment, failsWithoutModel } from "./run/evaluate.ts";
 import { type Attempt, type StageResult, admissionEvents, planEvents } from "./run/plan.ts";
 import { allowedBashRules, builderPrompt, clipFeedback, handoffSection, judgePrompt, pullRequestBody, pullRequestTitle } from "./run/render.ts";
 import { type SessionUsage, readUsage, usageSection } from "./run/usage.ts";
@@ -141,36 +141,19 @@ const commands: Record<string, () => Promise<void> | void> = {
     // The ticket evaluation. With something missing the ticket has already failed, so the model is not asked.
     let modelOutput: unknown = null;
     if (!failsWithoutModel(task, repository)) {
-      const template = readFileSync(join(ROOT, "prompts/evaluate.md"), "utf8");
-      const r = spawnSync(
-        process.env.FACTORY_CLAUDE || "claude",
-        [
-          "-p", "--safe-mode", "--permission-prompts", "none", "--tools", "",
-          "--model", config.evaluation.model, "--max-turns", "3", "--no-session-persistence",
-          "--max-budget-usd", String(config.evaluation.usd),
-          "--output-format", "json", "--json-schema", JSON.stringify(EVALUATION_SCHEMA),
-        ],
-        {
-          // An empty folder: the evaluator reads the ticket and nothing else.
-          cwd: mkdtempSync(join(tmpdir(), "factory-evaluate-")),
-          env: modelEnv(),
-          input: evaluationPrompt(template, task, randomUUID()),
-          encoding: "utf8",
-          maxBuffer: 16 * 1024 * 1024,
-          stdio: ["pipe", "pipe", "inherit"],
-        },
-      );
-      writeFileSync(outFile("evaluation-result.json"), r.stdout ?? "");
-      if (r.error) throw r.error;
-      if (r.status !== 0) throw new Error(`the ticket evaluator exited with ${r.status ?? r.signal}`);
+      let answer;
       try {
-        const result = JSON.parse(r.stdout) as { structured_output?: unknown };
-        modelOutput = result.structured_output;
-        const u = readUsage("evaluator", 0, result);
+        answer = askEvaluator(task, { root: ROOT, command: process.env.FACTORY_CLAUDE, model: config.evaluation.model, usd: config.evaluation.usd, env: modelEnv() });
+      } catch (e) {
+        writeFileSync(outFile("evaluation-result.json"), (e as { raw?: string }).raw ?? "");
+        throw e;
+      }
+      writeFileSync(outFile("evaluation-result.json"), answer.raw);
+      modelOutput = answer.output;
+      if (answer.result) {
+        const u = readUsage("evaluator", 0, answer.result);
         const spend = u.usd === null ? "not reported" : `${u.usd.toFixed(4)} US dollars`;
         console.log(`Ticket evaluator: ${u.models.join(", ") || "model not reported"}, estimated spend ${spend}.`);
-      } catch {
-        modelOutput = null;
       }
     }
     const evaluation = evaluateTicket(task, repository, modelOutput, { minMean: config.evaluation.minScore, minArea: config.evaluation.minAreaScore });

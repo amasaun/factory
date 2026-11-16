@@ -1,0 +1,142 @@
+{
+  "id": "borderline-first-draft",
+  "why": "The first draft of the initials ticket, which the real evaluator scored 4.43. It is good but leaves null input, validation order and non-letter first characters undecided. Reasonable reviewers could go either way, so it is used to measure how much the score moves, not counted as right or wrong.",
+  "repository": "acme/textkit",
+  "task": {
+    "summary": "Add an initials(name) helper to the text utilities that turns a person's name into upper-case initials, for use in avatar placeholders.",
+    "story": {
+      "role": "a developer building a user list",
+      "want": "a helper that turns a full name into its initials",
+      "benefit": "avatar placeholders show consistent initials without each screen re-implementing the rule"
+    },
+    "repository": "acme/textkit",
+    "impactedAreas": [
+      {
+        "area": "Public API of the text utilities (src/index.js)",
+        "impact": "Gains one new export, initials. No existing export changes, so current callers are unaffected."
+      },
+      {
+        "area": "README.md",
+        "impact": "The list of functions should mention initials."
+      }
+    ],
+    "goal": "Add initials(name) to the text utilities so callers can derive upper-case initials from a person's name.",
+    "acceptance": [
+      {
+        "id": "AC-1",
+        "behavior": "The first letter of each whitespace-separated word is returned, upper-cased, in order.",
+        "gherkin": "Given the name \"ada lovelace\"\nWhen initials is called with it\nThen the result is \"AL\"",
+        "evidence": "unit test"
+      },
+      {
+        "id": "AC-2",
+        "behavior": "Leading, trailing and repeated whitespace between words is ignored.",
+        "gherkin": "Given the name \"  grace   brewster  hopper \"\nWhen initials is called with it\nThen the result is \"GBH\"",
+        "evidence": "unit test"
+      },
+      {
+        "id": "AC-3",
+        "behavior": "A name with a single word returns one initial, and an empty or blank name returns the empty string.",
+        "gherkin": "Given the name \"plato\"\nWhen initials is called with it\nThen the result is \"P\"\nAnd given the name \"   \"\nWhen initials is called with it\nThen the result is \"\"",
+        "evidence": "unit test"
+      },
+      {
+        "id": "AC-4",
+        "behavior": "An optional second argument, max, limits how many initials are returned, keeping the first ones. It must be a positive integer.",
+        "gherkin": "Given the name \"grace brewster hopper\" and max 2\nWhen initials is called with them\nThen the result is \"GB\"\nAnd given max 0, -1, 1.5 or \"2\"\nWhen initials is called with any name\nThen a RangeError is thrown",
+        "evidence": "unit test"
+      },
+      {
+        "id": "AC-5",
+        "behavior": "initials is exported from src/index.js alongside the existing functions.",
+        "gherkin": "Given a module that imports initials from src/index.js\nWhen it calls initials(\"ada lovelace\")\nThen the result is \"AL\"",
+        "evidence": "unit test importing from src/index.js"
+      }
+    ],
+    "testCases": [
+      {
+        "id": "T-1",
+        "description": "initials(\"ada lovelace\") returns \"AL\"; initials(\"Ada Lovelace\") also returns \"AL\".",
+        "covers": [
+          "AC-1"
+        ]
+      },
+      {
+        "id": "T-2",
+        "description": "initials(\"  grace   brewster  hopper \") returns \"GBH\"; a name separated by a tab and a newline, \"a\\tb\\nc\", returns \"ABC\".",
+        "covers": [
+          "AC-2"
+        ]
+      },
+      {
+        "id": "T-3",
+        "description": "initials(\"plato\") returns \"P\"; initials(\"\") and initials(\"   \") both return \"\".",
+        "covers": [
+          "AC-3"
+        ]
+      },
+      {
+        "id": "T-4",
+        "description": "initials(\"grace brewster hopper\", 2) returns \"GB\"; with max 5 it returns \"GBH\"; with max omitted it returns \"GBH\".",
+        "covers": [
+          "AC-4"
+        ]
+      },
+      {
+        "id": "T-5",
+        "description": "initials(\"a b\", bad) throws RangeError for each bad value in 0, -1, 1.5, NaN and the string \"2\".",
+        "covers": [
+          "AC-4"
+        ]
+      },
+      {
+        "id": "T-6",
+        "description": "The test file imports initials from ../src/index.js, so every test fails if the export is missing.",
+        "covers": [
+          "AC-5"
+        ]
+      }
+    ],
+    "scenarios": {
+      "omitted": "Hidden scenarios are not implemented yet."
+    },
+    "nonGoals": [
+      "Handling titles or suffixes such as \"Dr\" or \"Jr\"",
+      "Treating hyphenated or apostrophe names specially: \"mary-jane\" is one word and gives \"M\"",
+      "Locale-specific casing rules",
+      "Changing existing functions"
+    ],
+    "scope": {
+      "components": [
+        "text utilities"
+      ],
+      "permitted": [
+        "src/initials.js",
+        "src/index.js",
+        "test/initials.test.js",
+        "README.md"
+      ],
+      "forbidden": [
+        "src/slugify.js",
+        "src/wordCount.js",
+        "src/truncate.js"
+      ]
+    },
+    "risk": {
+      "level": "low",
+      "concerns": []
+    },
+    "context": [
+      "src/truncate.js",
+      "test/truncate.test.js",
+      "src/index.js"
+    ],
+    "reuse": [
+      "The argument validation style in src/truncate.js, which throws RangeError for an invalid max"
+    ],
+    "approach": "One small module in the same style as the existing ones: plain JavaScript, a named export, a JSDoc comment, and its own test file using node:test."
+  },
+  "expect": {
+    "outcome": "borderline"
+  }
+}

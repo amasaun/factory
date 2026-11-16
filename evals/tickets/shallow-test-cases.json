@@ -1,0 +1,126 @@
+{
+  "id": "shallow-test-cases",
+  "why": "Every criterion is nominally covered, so the plain check passes, but the test cases name no inputs or expected results. \"Test edge cases\" cannot be written as an automated test without guessing which ones.",
+  "repository": "acme/textkit",
+  "task": {
+    "summary": "Add an initials(name) helper to the text utilities that turns a person's name into upper-case initials, for use in avatar placeholders.",
+    "story": {
+      "role": "a front-end developer rendering a list of people where some have no profile photo",
+      "want": "a helper that turns a full name into its initials",
+      "benefit": "avatar placeholders show consistent initials without each screen re-implementing the rule"
+    },
+    "repository": "acme/textkit",
+    "impactedAreas": [
+      {
+        "area": "Public API of the text utilities (src/index.js)",
+        "impact": "Gains one new export, initials. No existing export changes, so current callers are unaffected."
+      },
+      {
+        "area": "README.md",
+        "impact": "The list of functions should mention initials."
+      }
+    ],
+    "goal": "Add initials(name) to the text utilities so callers can derive upper-case initials from a person's name.",
+    "acceptance": [
+      {
+        "id": "AC-1",
+        "behavior": "The first character of each whitespace-separated word is returned, upper-cased with toUpperCase, in order. The first character is the first Unicode code point, kept whole, and a character with no upper-case form is returned as it is.",
+        "gherkin": "Given the name \"ada lovelace\"\nWhen initials is called with it\nThen the result is \"AL\"\nAnd given the name \"3d printer\"\nWhen initials is called with it\nThen the result is \"3P\"\nAnd given the name \"😀 smile\"\nWhen initials is called with it\nThen the result is \"😀S\"",
+        "evidence": "unit test"
+      },
+      {
+        "id": "AC-2",
+        "behavior": "Leading, trailing and repeated whitespace between words is ignored. Whitespace means anything matched by the JavaScript regular expression \\s.",
+        "gherkin": "Given the name \"  grace   brewster  hopper \"\nWhen initials is called with it\nThen the result is \"GBH\"",
+        "evidence": "unit test"
+      },
+      {
+        "id": "AC-3",
+        "behavior": "A name with a single word returns one initial. An empty or blank name returns the empty string, and so do null and undefined. Any other non-string value is converted with String(name) first.",
+        "gherkin": "Given the name \"plato\"\nWhen initials is called with it\nThen the result is \"P\"\nAnd given the name \"   \", \"\", null or undefined\nWhen initials is called with it\nThen the result is \"\"\nAnd given the number 42 as the name\nWhen initials is called with it\nThen the result is \"4\"",
+        "evidence": "unit test"
+      },
+      {
+        "id": "AC-4",
+        "behavior": "An optional second argument, max, limits how many initials are returned, keeping the first ones. When max is given it must be a positive integer, and it is checked before the name is looked at, so an invalid max throws even for an empty name. When max is omitted or undefined there is no limit.",
+        "gherkin": "Given the name \"grace brewster hopper\" and max 2\nWhen initials is called with them\nThen the result is \"GB\"\nAnd given the same name and max 5\nWhen initials is called with them\nThen the result is \"GBH\"\nAnd given max 0, -1, 1.5, NaN, Infinity or the string \"2\", with any name including \"\"\nWhen initials is called with them\nThen a RangeError is thrown",
+        "evidence": "unit test"
+      },
+      {
+        "id": "AC-5",
+        "behavior": "initials is exported from src/index.js alongside the existing functions.",
+        "gherkin": "Given a module that imports initials from src/index.js\nWhen it calls initials(\"ada lovelace\")\nThen the result is \"AL\"",
+        "evidence": "unit test importing from src/index.js"
+      }
+    ],
+    "testCases": [
+      {
+        "id": "T-1",
+        "description": "Test that initials works for normal names.",
+        "covers": [
+          "AC-1",
+          "AC-2"
+        ]
+      },
+      {
+        "id": "T-2",
+        "description": "Test edge cases.",
+        "covers": [
+          "AC-3",
+          "AC-4"
+        ]
+      },
+      {
+        "id": "T-3",
+        "description": "Test the export.",
+        "covers": [
+          "AC-5"
+        ]
+      }
+    ],
+    "scenarios": {
+      "omitted": "Hidden scenarios are not implemented yet."
+    },
+    "nonGoals": [
+      "Handling titles or suffixes such as \"Dr\" or \"Jr\"",
+      "Treating hyphenated or apostrophe names specially: \"mary-jane\" is one word and gives \"M\"",
+      "Locale-specific casing rules",
+      "Changing existing functions"
+    ],
+    "scope": {
+      "components": [
+        "text utilities"
+      ],
+      "permitted": [
+        "src/initials.js",
+        "src/index.js",
+        "test/initials.test.js",
+        "README.md"
+      ],
+      "forbidden": [
+        "src/slugify.js",
+        "src/wordCount.js",
+        "src/truncate.js"
+      ]
+    },
+    "risk": {
+      "level": "low",
+      "concerns": []
+    },
+    "context": [
+      "src/truncate.js",
+      "test/truncate.test.js",
+      "src/index.js"
+    ],
+    "reuse": [
+      "The argument validation style in src/truncate.js, which throws RangeError for an invalid max"
+    ],
+    "approach": "One small module in the same style as the existing ones: plain JavaScript, a named export, a JSDoc comment, and its own test file using node:test."
+  },
+  "expect": {
+    "outcome": "fail",
+    "weakAreas": [
+      "testCases"
+    ]
+  }
+}

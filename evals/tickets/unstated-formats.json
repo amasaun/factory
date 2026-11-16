@@ -1,0 +1,81 @@
+{
+  "id": "unstated-formats",
+  "why": "It reads like a finished ticket, but the things a CSV export lives or dies on are absent: which columns in which order, the header row, date and money formats, how commas and quotes in values are escaped, what an empty result looks like, and any row limit. Two engineers would produce two incompatible files.",
+  "repository": "acme/api",
+  "task": {
+    "summary": "Add a button to the orders page that downloads the current list of orders as a CSV file.",
+    "story": {
+      "role": "a finance analyst reconciling monthly sales",
+      "want": "to download the orders I am looking at as a spreadsheet file",
+      "benefit": "I can reconcile them against bank statements without copying rows by hand"
+    },
+    "repository": "acme/api",
+    "impactedAreas": [
+      {
+        "area": "Orders page",
+        "impact": "Gains a download button."
+      }
+    ],
+    "goal": "Let users export orders to CSV.",
+    "acceptance": [
+      {
+        "id": "AC-1",
+        "behavior": "Clicking the button downloads a CSV of the orders.",
+        "gherkin": "Given a user on the orders page\nWhen they click \"Export CSV\"\nThen a CSV file containing the orders is downloaded",
+        "evidence": "integration test"
+      },
+      {
+        "id": "AC-2",
+        "behavior": "The export respects the current filters.",
+        "gherkin": "Given the orders page is filtered to March\nWhen the user clicks \"Export CSV\"\nThen the file contains only the filtered orders",
+        "evidence": "integration test"
+      }
+    ],
+    "testCases": [
+      {
+        "id": "T-1",
+        "description": "GET /orders/export returns a response with content type text/csv.",
+        "covers": [
+          "AC-1"
+        ]
+      },
+      {
+        "id": "T-2",
+        "description": "GET /orders/export?month=2026-03 returns only March orders.",
+        "covers": [
+          "AC-2"
+        ]
+      }
+    ],
+    "scenarios": {
+      "omitted": "Hidden scenarios are not implemented yet."
+    },
+    "nonGoals": [
+      "Excel format"
+    ],
+    "scope": {
+      "components": [
+        "orders"
+      ],
+      "permitted": [
+        "src/handlers/orders.js",
+        "src/handlers/ordersExport.js",
+        "test/handlers/ordersExport.test.js"
+      ],
+      "forbidden": [
+        "migrations/**"
+      ]
+    },
+    "risk": {
+      "level": "low",
+      "concerns": []
+    }
+  },
+  "expect": {
+    "outcome": "fail",
+    "weakAreas": [
+      "acceptance",
+      "readiness"
+    ]
+  }
+}
