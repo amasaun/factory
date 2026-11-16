@@ -2,7 +2,7 @@
 
 A golden set is a collection of inputs with answers a person has agreed are right. Running a model-driven part of the factory against its golden set shows how often it decides wrongly, whether it decides rightly for the wrong reason, and how much its answers move between identical runs. That is the evidence for changing a prompt, a model or a threshold.
 
-There are two so far: the ticket evaluator and the judge. The builder is next.
+There are two so far: the ticket evaluator and the judge. The builder is next. Results of past runs are in `evals/baselines/`.
 
 ## Running
 
