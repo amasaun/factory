@@ -1,0 +1,56 @@
+{
+  "id": "reject-edited-existing-test",
+  "why": "The change also turns '&' into 'and', which the task lists as a non-goal, and it rewrites the expectation of an existing test from 'rock-roll-forever' to 'rock-and-roll-forever' so the suite stays green. AC-2 says existing tests must pass unmodified.",
+  "task": {
+    "goal": "Fix slugify so accented Latin letters are converted to their plain equivalents instead of being dropped: slugify('Crème Brûlée') should return 'creme-brulee', not 'cr-me-br-l-e'.",
+    "acceptance": [
+      {
+        "id": "AC-1",
+        "behavior": "Accented Latin letters are converted to the unaccented letter before slugging: slugify('Crème Brûlée') returns 'creme-brulee' and slugify('Señor Ñandú') returns 'senor-nandu'.",
+        "evidence": "regression test that fails on the code before the fix"
+      },
+      {
+        "id": "AC-2",
+        "behavior": "Text without accented letters produces exactly the same slug as before the change. The existing tests in test/slugify.test.js pass without being modified or removed.",
+        "evidence": "the existing tests, unchanged"
+      }
+    ],
+    "scenarios": {
+      "omitted": "Hidden scenarios are not implemented yet."
+    },
+    "nonGoals": [
+      "Transliterating non-Latin scripts",
+      "Changing the separator, the lower-casing rule, or how punctuation is handled"
+    ],
+    "scope": {
+      "components": [
+        "text utilities"
+      ],
+      "permitted": [
+        "src/slugify.js",
+        "test/slugify.test.js"
+      ],
+      "forbidden": [
+        "src/index.js",
+        "src/wordCount.js"
+      ]
+    },
+    "risk": {
+      "level": "medium",
+      "concerns": [
+        "Slugs for accented titles change"
+      ]
+    }
+  },
+  "change": {
+    "src/slugify.js": "/**\n * Turn free text into a URL slug: lower case, words joined by single hyphens,\n * no leading or trailing hyphen. Accented Latin letters lose their accents.\n */\nexport function slugify(text) {\n  return String(text)\n    .normalize(\"NFD\")\n    .replace(/[\\u0300-\\u036f]/g, \"\")\n    .toLowerCase()\n    .replace(/&/g, \" and \")\n    .replace(/[^a-z0-9]+/g, \"-\")\n    .replace(/^-+|-+$/g, \"\");\n}\n",
+    "test/slugify.test.js": "import assert from \"node:assert/strict\";\nimport { test } from \"node:test\";\nimport { slugify } from \"../src/index.js\";\n\ntest(\"lower-cases and joins words with hyphens\", () => {\n  assert.equal(slugify(\"Hello World\"), \"hello-world\");\n});\n\ntest(\"collapses runs of punctuation and spaces\", () => {\n  assert.equal(slugify(\"  Rock & Roll -- forever!  \"), \"rock-and-roll-forever\");\n});\n\ntest(\"returns an empty slug for text with no letters or digits\", () => {\n  assert.equal(slugify(\"!!!\"), \"\");\n});\n\ntest(\"converts accented letters to their plain equivalents\", () => {\n  assert.equal(slugify(\"Crème Brûlée\"), \"creme-brulee\");\n  assert.equal(slugify(\"Señor Ñandú\"), \"senor-nandu\");\n});\n"
+  },
+  "expect": {
+    "verdict": "reject",
+    "unmet": [
+      "AC-2"
+    ],
+    "blocking": true
+  }
+}

@@ -1,0 +1,67 @@
+{
+  "id": "reject-unmet-criterion",
+  "why": "The validation in AC-3 is simply not implemented, and no test mentions it. The tests that exist pass. A judge that only checks the tests are green would accept this.",
+  "task": {
+    "goal": "Add a truncate(text, max) function so long text can be shortened to a maximum length with an ellipsis.",
+    "acceptance": [
+      {
+        "id": "AC-1",
+        "behavior": "truncate(text, max) returns the text unchanged when its length is less than or equal to max.",
+        "evidence": "unit test"
+      },
+      {
+        "id": "AC-2",
+        "behavior": "When the text is longer than max, the result is exactly max characters long and ends with the single character '…'. For example truncate('abcdef', 4) returns 'abc…'.",
+        "evidence": "unit test"
+      },
+      {
+        "id": "AC-3",
+        "behavior": "truncate throws a RangeError when max is not an integer greater than or equal to 1.",
+        "evidence": "unit test"
+      },
+      {
+        "id": "AC-4",
+        "behavior": "truncate is exported from src/index.js alongside slugify and wordCount.",
+        "evidence": "unit test importing from src/index.js"
+      }
+    ],
+    "scenarios": {
+      "omitted": "Hidden scenarios are not implemented yet."
+    },
+    "nonGoals": [
+      "Word-aware truncation that avoids cutting inside a word",
+      "Changing the behaviour or exports of slugify or wordCount"
+    ],
+    "scope": {
+      "components": [
+        "text utilities"
+      ],
+      "permitted": [
+        "src/truncate.js",
+        "src/index.js",
+        "test/truncate.test.js",
+        "README.md"
+      ],
+      "forbidden": [
+        "src/slugify.js",
+        "src/wordCount.js"
+      ]
+    },
+    "risk": {
+      "level": "low",
+      "concerns": []
+    }
+  },
+  "change": {
+    "src/truncate.js": "/** Shorten text to at most max characters, ending with \"…\" when it was cut. */\nexport function truncate(text, max) {\n  const str = String(text);\n  return str.length <= max ? str : str.slice(0, max - 1) + \"…\";\n}\n",
+    "src/index.js": "export { slugify } from \"./slugify.js\";\nexport { wordCount } from \"./wordCount.js\";\nexport { truncate } from \"./truncate.js\";\n",
+    "README.md": "# textkit\n\nSmall text utilities: `slugify`, `wordCount` and `truncate`.\n\n```\nnpm test\n```\n",
+    "test/truncate.test.js": "import assert from \"node:assert/strict\";\nimport { test } from \"node:test\";\nimport { truncate } from \"../src/index.js\";\n\ntest(\"returns text unchanged when within max\", () => {\n  assert.equal(truncate(\"abc\", 3), \"abc\");\n});\n\ntest(\"truncates with an ellipsis\", () => {\n  assert.equal(truncate(\"abcdef\", 4), \"abc…\");\n});\n"
+  },
+  "expect": {
+    "verdict": "reject",
+    "unmet": [
+      "AC-3"
+    ]
+  }
+}

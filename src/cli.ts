@@ -5,7 +5,6 @@
  * repository code; `verify` runs it and so only ever runs in a worker job.
  */
 import { spawnSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -22,9 +21,10 @@ import { ensurePullRequest, pushCandidate } from "./publisher/publish.ts";
 import { runBuilder } from "./run/builder.ts";
 import { MAX_HANDOFFS, type RepoConfig, parseConfig } from "./run/config.ts";
 import { askEvaluator } from "./run/ask-evaluator.ts";
+import { askJudge, buildJudgePrompt } from "./run/ask-judge.ts";
 import { evaluateTicket, evaluationComment, failsWithoutModel } from "./run/evaluate.ts";
 import { type Attempt, type StageResult, admissionEvents, planEvents } from "./run/plan.ts";
-import { allowedBashRules, builderPrompt, clipFeedback, handoffSection, judgePrompt, pullRequestBody, pullRequestTitle } from "./run/render.ts";
+import { allowedBashRules, builderPrompt, clipFeedback, handoffSection, pullRequestBody, pullRequestTitle } from "./run/render.ts";
 import { type SessionUsage, readUsage, usageSection } from "./run/usage.ts";
 import { type Decision, type Verdict, decide, verdictProblems } from "./run/verdict.ts";
 
@@ -315,37 +315,25 @@ const commands: Record<string, () => Promise<void> | void> = {
 
   "judge-prompt"() {
     const admitted = readAdmitted();
-    const template = readFileSync(join(ROOT, "prompts/judge.md"), "utf8");
     const diff = readFileSync(art(`frozen-${attemptNumber()}`, "diff.patch"), "utf8");
-    writeFileSync(outFile("judge-prompt.md"), judgePrompt(template, admitted.task, diff, randomUUID()));
+    writeFileSync(outFile("judge-prompt.md"), buildJudgePrompt(ROOT, admitted.task, diff));
   },
 
   /** Run the judge: read-only tools, the base commit as its working directory, the diff as data in its prompt. */
   judge() {
     const repoDir = env("FACTORY_REPO_DIR");
     const config = configAt(repoDir, readAdmitted().base);
-    const r = spawnSync(
-      process.env.FACTORY_CLAUDE || "claude",
-      [
-        "-p", "--safe-mode", "--permission-prompts", "none",
-        "--tools", "Read,Glob,Grep", "--allowedTools", "Read", "Glob", "Grep",
-        "--model", env("MODEL"), "--max-turns", "30", "--no-session-persistence",
-        "--max-budget-usd", String(config.judgeUsd),
-        "--output-format", "json",
-        "--json-schema", readFileSync(join(ROOT, "schemas/verdict.schema.json"), "utf8"),
-      ],
-      {
-        cwd: repoDir,
-        env: modelEnv(),
-        input: readFileSync(join(env("FACTORY_OUT"), "judge-prompt.md"), "utf8"),
-        encoding: "utf8",
-        maxBuffer: 64 * 1024 * 1024,
-        stdio: ["pipe", "pipe", "inherit"],
-      },
-    );
-    writeFileSync(outFile("judge-result.json"), r.stdout ?? "");
-    if (r.error) throw r.error;
-    if (r.status !== 0) throw new Error(`the judge exited with ${r.status ?? r.signal}`);
+    const answer = askJudge({
+      root: ROOT,
+      repoDir,
+      prompt: readFileSync(join(env("FACTORY_OUT"), "judge-prompt.md"), "utf8"),
+      command: process.env.FACTORY_CLAUDE,
+      model: env("MODEL"),
+      usd: config.judgeUsd,
+      env: modelEnv(),
+    });
+    writeFileSync(outFile("judge-result.json"), answer.raw);
+    if (answer.status !== 0) throw new Error(`the judge exited with ${answer.status}`);
   },
 
   /** Read the judge's output and say what it means for the run. Runs in the judge job, which executes no repository code. */
