@@ -5,9 +5,9 @@
   "task": {
     "summary": "Change the POST /signup success response from a bare user object to an envelope, {\"data\": {...user}}, to match the newer endpoints.",
     "story": {
-      "role": "a support agent investigating accounts that cannot be found by name",
-      "want": "signup to refuse blank usernames",
-      "benefit": "no more accounts are created that nobody can search for or sign in to"
+      "role": "a maintainer of the API keeping its endpoints consistent",
+      "want": "POST /signup to return its result in the same data envelope the newer endpoints use",
+      "benefit": "clients can read every endpoint's response the same way"
     },
     "repository": "acme/api",
     "impactedAreas": [],
@@ -72,10 +72,7 @@
       "clients/web/src/api/signup.ts (reads response.id directly)",
       "clients/mobile/Signup.swift (decodes the bare user object)"
     ],
-    "reuse": [
-      "The validationError(code, message) helper in src/errors.js, which already produces the 422 error shape used by the email and password checks"
-    ],
-    "approach": "Add the check at the top of the handler, before the existing validation, using the existing validationError helper."
+    "approach": "Wrap the user object in { data: ... } in the success branch of the handler only. Leave the error branches as they are."
   },
   "expect": {
     "outcome": "fail",
