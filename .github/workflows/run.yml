@@ -73,7 +73,7 @@ jobs:
         with:
           path: repo
           persist-credentials: false
-      - uses: amasaun/factory/actions/setup@main
+      - uses: amasaun/factory/actions/setup@v0.3.0
       - name: Check that a model credential is configured
         env:
           HAS_CREDENTIAL: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' || secrets.ANTHROPIC_API_KEY != '' }}
@@ -115,7 +115,7 @@ jobs:
           ref: ${{ needs.admit.outputs.base }}
           path: repo
           persist-credentials: false
-      - uses: amasaun/factory/actions/setup@main
+      - uses: amasaun/factory/actions/setup@v0.3.0
       - run: node "$FACTORY_ROOT/src/cli.ts" verify
         env:
           FACTORY_BASE: ${{ needs.admit.outputs.base }}
@@ -125,7 +125,7 @@ jobs:
     needs: [admit, baseline]
     permissions:
       contents: read
-    uses: amasaun/factory/.github/workflows/attempt.yml@main
+    uses: amasaun/factory/.github/workflows/attempt.yml@v0.3.0
     with:
       issue: ${{ needs.admit.outputs.issue }}
       attempt: 1
@@ -141,7 +141,7 @@ jobs:
     if: needs.attempt1.outputs.next == 'repair' && fromJSON(needs.admit.outputs.max_attempts) >= 2
     permissions:
       contents: read
-    uses: amasaun/factory/.github/workflows/attempt.yml@main
+    uses: amasaun/factory/.github/workflows/attempt.yml@v0.3.0
     with:
       issue: ${{ needs.admit.outputs.issue }}
       attempt: 2
@@ -159,7 +159,7 @@ jobs:
     if: needs.attempt2.outputs.next == 'repair' && fromJSON(needs.admit.outputs.max_attempts) >= 3
     permissions:
       contents: read
-    uses: amasaun/factory/.github/workflows/attempt.yml@main
+    uses: amasaun/factory/.github/workflows/attempt.yml@v0.3.0
     with:
       issue: ${{ needs.admit.outputs.issue }}
       attempt: 3
@@ -189,7 +189,7 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           path: factory-in
-      - uses: amasaun/factory/actions/setup@main
+      - uses: amasaun/factory/actions/setup@v0.3.0
       - run: node "$FACTORY_ROOT/src/cli.ts" finish
         env:
           GITHUB_TOKEN: ${{ github.token }}
