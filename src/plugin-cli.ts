@@ -9,6 +9,7 @@ import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import { renderTask } from "./control/issue-task.ts";
 import { type Task, taskProblems } from "./control/task.ts";
+import { renderTaskForJira } from "./jira/adf.ts";
 import { Gh, isRepoName } from "./plugin/gh.ts";
 import { type Area, AREA_TITLES, ticketGaps } from "./run/evaluate.ts";
 import { INIT_FILES, type InitOptions, configFile, initProblems, workflowFile } from "./plugin/init.ts";
@@ -46,15 +47,17 @@ const commands: Record<string, (argv: string[]) => Promise<void> | void> = {
    * Fails when the task is malformed or is missing something the ticket evaluation requires.
    */
   task(argv) {
-    const { values, positionals } = parseArgs({ args: argv, options: { repo: { type: "string" } }, allowPositionals: true });
-    const file = positionals[0] ?? fail("usage: task <task.json> --repo <owner/name>");
+    const { values, positionals } = parseArgs({ args: argv, options: { repo: { type: "string" }, format: { type: "string", default: "github" } }, allowPositionals: true });
+    const file = positionals[0] ?? fail("usage: task <task.json> --repo <owner/name> [--format github|jira]");
+    if (values.format !== "github" && values.format !== "jira") fail("--format must be github or jira");
     const repo = values.repo && isRepoName(values.repo) ? values.repo : fail("--repo <owner/name> is required: the repository the task is for");
     const task = jsonArg<unknown>(readFileSync(file, "utf8"), "the task file");
     const problems = taskProblems(task);
     if (problems.length) fail(`The task is not valid:\n${problems.map((p) => `- ${p}`).join("\n")}`);
     const gaps = Object.entries(ticketGaps(task as Task, repo)).flatMap(([area, list]) => list.map((g) => `- ${AREA_TITLES[area as Area]}: ${g}`));
     if (gaps.length) fail(`The task would fail the ticket evaluation before any scoring:\n${gaps.join("\n")}`);
-    process.stdout.write(renderTask(task as Task));
+    // A Jira description is written from Markdown and cannot hold HTML, so it gets its own form.
+    process.stdout.write(values.format === "jira" ? renderTaskForJira(task as Task) : renderTask(task as Task));
   },
 
   /** Write the two files a repository needs. Refuses to overwrite either. */

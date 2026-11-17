@@ -75,6 +75,11 @@ Your score is a preview. The factory's own evaluation decides, and it may differ
 
 Show the user the task in plain language: the summary, the story, each acceptance criterion with its scenario, the test cases, the scope, the areas affected, the risk level, and your score for each area with one line of reason. Ask them to confirm or change it. Do not file it until they agree.
 
-Create the issue with a short title and exactly the helper's output as the body (`gh issue create --repo <owner/name> --title ... --body-file ...`). The readable part of the ticket is generated from the data block at the bottom, so later changes must be made by re-running this command, not by editing the readable text.
+Ask where the ticket should live if it is not obvious: a GitHub issue in the repository, or a ticket in Jira. A repository whose `.factory/config.json` has a `jira` section takes its tickets from Jira.
 
-Tell the user the issue number and what happens next: after a person has reviewed the ticket, adding the `factory` label to it starts the work. Do not add the label yourself; it is the approval, and it has to be a person's.
+- **GitHub issue:** create the issue with a short title and exactly the helper's output as the body (`gh issue create --repo <owner/name> --title ... --body-file ...`).
+- **Jira ticket:** run the helper again with `--format jira` and use its output, unchanged, as the ticket's description, with a short summary as the title. Create or update the ticket with whatever Jira tool is available in this session. If none is, give the user the description to paste. Afterwards, read the ticket back and check that the line `factory-task:v1` is still there and is followed directly by a code block containing the JSON; some tools reformat descriptions, and the factory cannot read the task if that pair is broken.
+
+The readable part of the ticket is generated from the data block at the bottom, so later changes must be made by re-running this command, not by editing the readable text.
+
+Tell the user where the ticket is and what happens next: after a person has reviewed it, adding the `factory` label to it starts the work. Do not add the label yourself, in GitHub or in Jira; it is the approval, and it has to be a person's.

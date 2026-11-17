@@ -122,7 +122,9 @@ test("setup files are valid and pin a release", () => {
   assert.deepEqual(config.approvers, ["owner"]);
   const wf = workflowFile(o);
   assert.ok(wf.includes("uses: amasaun/factory/.github/workflows/run.yml@v0.1.0"));
-  assert.ok(wf.includes("group: factory-${{ github.event.issue.number || inputs.issue }}"));
+  assert.ok(wf.includes("group: factory-${{ github.event.issue.number || inputs.issue || inputs.jira }}"));
+  assert.ok(wf.includes("jira: ${{ inputs.jira }}"));
+  assert.ok(wf.includes("JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}"));
   // A label starts a run only when it is the factory label.
   assert.ok(wf.includes("types: [labeled]"));
   assert.ok(wf.includes("if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'factory'"));
@@ -170,6 +172,12 @@ test("the task command prints a ticket body for a complete task and explains wha
   assert.match(gaps.stderr, /would fail the ticket evaluation/);
   assert.match(gaps.stderr, /Test cases: there are no test cases/);
   assert.match(gaps.stderr, /User story:/);
+  // For Jira, the same task in a form with no HTML and a plain marker line.
+  const forJira = cli(["task", good, "--repo", "acme/app", "--format", "jira"]);
+  assert.equal(forJira.status, 0, forJira.stderr);
+  assert.ok(forJira.stdout.includes("\nfactory-task:v1\n\n```json\n"));
+  assert.ok(!forJira.stdout.includes("<details>"));
+  assert.equal(cli(["task", good, "--repo", "acme/app", "--format", "word"]).status, 1);
   assert.equal(cli(["task", good, "--repo", "olivo/web"]).status, 1);
   assert.equal(cli(["task", good]).status, 1);
 });

@@ -51,11 +51,15 @@ on:
     inputs:
       issue:
         description: Number of the task issue to build
-        required: true
         type: string
+        default: ""
+      jira:
+        description: Key of the Jira ticket to build, such as ABC-123
+        type: string
+        default: ""
 
 concurrency:
-  group: factory-\${{ github.event.issue.number || inputs.issue }}
+  group: factory-\${{ github.event.issue.number || inputs.issue || inputs.jira }}
   cancel-in-progress: false
 
 permissions: {}
@@ -71,10 +75,14 @@ jobs:
     uses: amasaun/factory/.github/workflows/run.yml@${o.version}
     with:
       issue: \${{ format('{0}', github.event.issue.number || inputs.issue) }}
+      jira: \${{ inputs.jira }}
     secrets:
       # Set one of these as a repository secret.
       CLAUDE_CODE_OAUTH_TOKEN: \${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       ANTHROPIC_API_KEY: \${{ secrets.ANTHROPIC_API_KEY }}
+      # Only needed when tickets live in Jira.
+      JIRA_EMAIL: \${{ secrets.JIRA_EMAIL }}
+      JIRA_API_TOKEN: \${{ secrets.JIRA_API_TOKEN }}
 `;
 }
 

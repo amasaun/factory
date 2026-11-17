@@ -29,6 +29,19 @@ export interface RepoConfig {
   triggerLabel: string;
   /** The ticket evaluation that every task must pass before it is started. */
   evaluation: { model: string; minScore: number; minAreaScore: number; usd: number };
+  /** Present when tickets for this repository live in Jira. */
+  jira?: JiraConfig;
+}
+
+export interface JiraConfig {
+  /** Site address, such as https://example.atlassian.net */
+  baseUrl: string;
+  /** Label that starts work when added to a ticket. */
+  label: string;
+  /** Status names in the site's workflow. A ticket is moved to whichever transition ends in the named status. */
+  statuses: { inProgress: string; review?: string };
+  /** Jira account ids or email addresses of the people whose label counts. */
+  approvers: string[];
 }
 
 export const DEFAULT_REPAIR_ROUNDS = 1;
@@ -106,6 +119,29 @@ export function parseConfig(text: string): RepoConfig {
   };
   if (typeof evaluation.model !== "string" || !/^[A-Za-z0-9._-]+$/.test(evaluation.model)) problems.push("evaluation.model must be a model name or alias");
   if (typeof evaluation.usd !== "number" || !(evaluation.usd > 0 && evaluation.usd <= MAX_SESSION_USD)) problems.push("evaluation.usd must be a number above 0");
+  let jira: JiraConfig | undefined;
+  if (raw?.jira !== undefined) {
+    const j = raw.jira as Record<string, unknown>;
+    const statuses = (j?.statuses ?? {}) as Record<string, unknown>;
+    let okUrl = false;
+    try {
+      okUrl = new URL(String(j?.baseUrl)).protocol === "https:";
+    } catch {
+      okUrl = false;
+    }
+    if (!okUrl) problems.push("jira.baseUrl must be an https address");
+    if (!isText(statuses.inProgress)) problems.push("jira.statuses.inProgress must name the status a ticket moves to when work starts");
+    if (statuses.review !== undefined && !isText(statuses.review)) problems.push("jira.statuses.review must be a status name");
+    if (!isList(j?.approvers, isText) || (j.approvers as string[]).length === 0) problems.push("jira.approvers must list at least one Jira account id or email address");
+    const label = j?.label ?? triggerLabel;
+    if (typeof label !== "string" || !/^[A-Za-z0-9][A-Za-z0-9:._-]{0,48}$/.test(label)) problems.push("jira.label must be a label name without spaces");
+    jira = {
+      baseUrl: String(j?.baseUrl).replace(/\/+$/, ""),
+      label: label as string,
+      statuses: { inProgress: statuses.inProgress as string, ...(statuses.review ? { review: statuses.review as string } : {}) },
+      approvers: (j?.approvers ?? []) as string[],
+    };
+  }
   if (problems.length) throw new Error(`.factory/config.json is invalid: ${problems.join("; ")}`);
   return {
     version: 1,
@@ -120,5 +156,6 @@ export function parseConfig(text: string): RepoConfig {
     runsPerDay: runsPerDay as number,
     triggerLabel: triggerLabel as string,
     evaluation: evaluation as RepoConfig["evaluation"],
+    ...(jira ? { jira } : {}),
   };
 }
