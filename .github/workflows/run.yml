@@ -12,9 +12,13 @@ on:
   workflow_call:
     inputs:
       issue:
-        description: Number of the task issue
-        required: true
+        description: Number of the task issue. Leave empty when a Jira ticket is given.
         type: string
+        default: ""
+      jira:
+        description: Key of the Jira ticket to build, such as ABC-123. Needs a jira section in .factory/config.json.
+        type: string
+        default: ""
       builder_model:
         type: string
         default: sonnet
@@ -32,6 +36,13 @@ on:
         required: false
       ANTHROPIC_API_KEY:
         description: Anthropic API key, billed per use
+        required: false
+      # Needed only when tickets live in Jira.
+      JIRA_EMAIL:
+        description: Email address of the Jira account the factory acts as
+        required: false
+      JIRA_API_TOKEN:
+        description: API token of that Jira account
         required: false
 
 permissions: {}
@@ -54,6 +65,8 @@ jobs:
       actions: read
     outputs:
       base: ${{ steps.admit.outputs.base }}
+      # The GitHub issue holding the run's history. For a Jira ticket the factory creates it.
+      issue: ${{ steps.admit.outputs.issue }}
       max_attempts: ${{ steps.admit.outputs.max_attempts }}
     steps:
       - uses: actions/checkout@v7
@@ -79,6 +92,9 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           FACTORY_ACTOR: ${{ github.triggering_actor }}
           FACTORY_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          FACTORY_JIRA: ${{ inputs.jira }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
       - uses: actions/upload-artifact@v7
         with:
           name: task
@@ -111,7 +127,7 @@ jobs:
       contents: read
     uses: amasaun/factory/.github/workflows/attempt.yml@main
     with:
-      issue: ${{ inputs.issue }}
+      issue: ${{ needs.admit.outputs.issue }}
       attempt: 1
       base: ${{ needs.admit.outputs.base }}
       builder_model: ${{ inputs.builder_model }}
@@ -127,7 +143,7 @@ jobs:
       contents: read
     uses: amasaun/factory/.github/workflows/attempt.yml@main
     with:
-      issue: ${{ inputs.issue }}
+      issue: ${{ needs.admit.outputs.issue }}
       attempt: 2
       previous: 1
       base: ${{ needs.admit.outputs.base }}
@@ -145,7 +161,7 @@ jobs:
       contents: read
     uses: amasaun/factory/.github/workflows/attempt.yml@main
     with:
-      issue: ${{ inputs.issue }}
+      issue: ${{ needs.admit.outputs.issue }}
       attempt: 3
       previous: 2
       base: ${{ needs.admit.outputs.base }}
@@ -177,6 +193,8 @@ jobs:
       - run: node "$FACTORY_ROOT/src/cli.ts" finish
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
           RESULT_BASELINE: ${{ needs.baseline.result }}
           A1_RESULT: ${{ needs.attempt1.result }}
           A1_BUILD: ${{ needs.attempt1.outputs.build }}

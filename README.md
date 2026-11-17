@@ -29,7 +29,8 @@ Early. A first pipeline exists that takes one approved task issue to a draft pul
 | Claude Code plugin: `/factory:init`, `/factory:spec`, `/factory:run`, `/factory:status` ([docs/plugin.md](docs/plugin.md)) | Implemented; the helpers are tested and status has been run against a real repository, the commands themselves have not yet been used in a Claude Code session |
 | Ticket evaluation before any build, and starting work by adding a label to the task issue | Implemented; the admit step is tested end to end against stand-ins for GitHub and the model, not yet run on GitHub |
 | Golden sets for the ticket evaluator (17 labelled tickets) and the judge (13 labelled code changes), with a harness that reports wrong decisions and disagreement between identical runs ([evals/README.md](evals/README.md)) | Implemented; labels have had a first-pass review, and neither set has been run against a real model |
-| Golden set for the builder, starting from a Jira or Linear ticket, resume, hidden scenarios, mutation gates, CI observation, review feedback | Not started |
+| Starting work from a Jira ticket: label, evaluation, status change, comments back ([docs/jira.md](docs/jira.md)) | Implemented; tested against stand-ins for Jira and GitHub, not yet run against a real Jira site |
+| Golden set for the builder, starting from a Linear ticket, resume, hidden scenarios, mutation gates, CI observation, review feedback | Not started |
 
 ## Use it from Claude Code
 
@@ -75,6 +76,7 @@ skills/                 the plugin's commands
 .claude-plugin/         plugin and marketplace manifests
 prompts/                builder and judge prompts
 actions/setup/          makes the factory's code available to a job
+src/jira/                Jira client and ticket format
 src/publisher/
   git.ts                hardened git invocation for the trusted side
   candidate.ts          candidate intake from a worker's Git bundle

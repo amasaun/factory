@@ -94,6 +94,17 @@ export class GitHub implements IssueComments, PullRequests {
     return { number: i.number, author: i.user.login, state: i.state, body: i.body ?? "", isPullRequest: !!i.pull_request };
   }
 
+  async createIssue(title: string, body: string, labels: string[] = []): Promise<number> {
+    const i = (await this.#request("POST", "/issues", { title, body, labels })) as { number: number };
+    return i.number;
+  }
+
+  /** Issues carrying a label, open or closed, newest first. Pull requests are left out. */
+  async issuesWithLabel(label: string): Promise<{ number: number; title: string }[]> {
+    const raw = (await this.#paged(`/issues?state=all&labels=${encodeURIComponent(label)}`)) as { number: number; title: string; pull_request?: unknown }[];
+    return raw.filter((i) => !i.pull_request).map((i) => ({ number: i.number, title: i.title }));
+  }
+
   async addLabels(issue: number, labels: string[]): Promise<void> {
     await this.#request("POST", `/issues/${issue}/labels`, { labels });
   }

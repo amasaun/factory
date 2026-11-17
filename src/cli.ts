@@ -11,10 +11,12 @@ import { fileURLToPath } from "node:url";
 import { digest } from "./control/digest.ts";
 import { GitHubLedger } from "./control/github-ledger.ts";
 import { advance } from "./control/ledger.ts";
-import { extractTask } from "./control/issue-task.ts";
+import { extractTask, renderTask } from "./control/issue-task.ts";
 import type { FactoryEvent } from "./control/run.ts";
 import type { Task } from "./control/task.ts";
 import { GitHub } from "./github/rest.ts";
+import { type AdfNode, adfComment, extractTaskFromAdf } from "./jira/adf.ts";
+import { Jira, isJiraApprover, isJiraKey, labelAddedBy } from "./jira/client.ts";
 import { type FrozenCandidate, intakeCandidate } from "./publisher/candidate.ts";
 import { git } from "./publisher/git.ts";
 import { ensurePullRequest, pushCandidate } from "./publisher/publish.ts";
@@ -22,7 +24,7 @@ import { runBuilder } from "./run/builder.ts";
 import { MAX_HANDOFFS, type RepoConfig, parseConfig } from "./run/config.ts";
 import { askEvaluator } from "./run/ask-evaluator.ts";
 import { askJudge, buildJudgePrompt } from "./run/ask-judge.ts";
-import { evaluateTicket, evaluationComment, failsWithoutModel } from "./run/evaluate.ts";
+import { AREAS, AREA_TITLES, type Evaluation, evaluateTicket, evaluationComment, failsWithoutModel } from "./run/evaluate.ts";
 import { type Attempt, type StageResult, admissionEvents, planEvents } from "./run/plan.ts";
 import { allowedBashRules, builderPrompt, clipFeedback, handoffSection, pullRequestBody, pullRequestTitle } from "./run/render.ts";
 import { type SessionUsage, readUsage, usageSection } from "./run/usage.ts";
@@ -66,7 +68,10 @@ const attemptNumber = () => {
 };
 
 interface Admitted {
+  /** The GitHub issue that holds the run's history. For a Jira ticket this is a mirror issue the factory created. */
   issue: number;
+  /** Set when the task came from a Jira ticket. */
+  jira?: { key: string; url: string };
   task: Task;
   taskDigest: string;
   policyDigest: string;
@@ -76,6 +81,8 @@ interface Admitted {
 }
 
 /** Labels the factory puts on a task issue to show where it stands. */
+/** Marks a GitHub issue the factory created to mirror a Jira ticket. */
+const JIRA_MIRROR_LABEL = "factory:jira";
 const STATUS_LABELS = { inProgress: "factory:in-progress", review: "factory:review", attention: "factory:needs-attention" } as const;
 const readAdmitted = (): Admitted => JSON.parse(readFileSync(art("task", "task.json"), "utf8"));
 
@@ -89,6 +96,22 @@ function github(): { gh: GitHub; ledger: GitHubLedger } {
   return { gh, ledger: new GitHubLedger(gh, env("FACTORY_APP_LOGIN")) };
 }
 
+function jiraClient(config: RepoConfig): Jira {
+  if (!config.jira) throw new Error("this repository's policy has no jira section");
+  const email = process.env.JIRA_EMAIL;
+  const apiToken = process.env.JIRA_API_TOKEN;
+  if (!email || !apiToken) throw new Error("JIRA_EMAIL and JIRA_API_TOKEN are not available to this job");
+  return new Jira({ baseUrl: process.env.FACTORY_JIRA_URL || config.jira.baseUrl, email, apiToken });
+}
+
+/** The ticket evaluation as a Jira comment. */
+function evaluationForJira(e: Evaluation, headline: string): AdfNode {
+  return adfComment(
+    [headline, `Average ${e.mean}, lowest ${e.lowest}. To pass, the average must be at least ${e.minMean} and no area below ${e.minArea}.`],
+    AREAS.map((a) => ({ label: `${AREA_TITLES[a]}: ${e.areas[a].score}`, value: e.areas[a].reason })),
+  );
+}
+
 async function record(ledger: GitHubLedger, taskId: string, events: FactoryEvent[]) {
   let state;
   for (const event of events) state = await advance(ledger, taskId, event);
@@ -98,8 +121,7 @@ async function record(ledger: GitHubLedger, taskId: string, events: FactoryEvent
 const commands: Record<string, () => Promise<void> | void> = {
   async admit() {
     const repoDir = env("FACTORY_REPO_DIR");
-    const issueNumber = Number(env("FACTORY_ISSUE"));
-    if (!Number.isInteger(issueNumber) || issueNumber < 1) throw new Error("the issue number is not valid");
+    const jiraKey = (process.env.FACTORY_JIRA ?? "").trim();
     const actor = env("FACTORY_ACTOR");
     const defaultBranch = env("FACTORY_DEFAULT_BRANCH");
     const runUrl = env("FACTORY_RUN_URL");
@@ -110,24 +132,63 @@ const commands: Record<string, () => Promise<void> | void> = {
     const base = git(repoDir, ["rev-parse", "HEAD"]).trim();
     const config = configAt(repoDir, base);
     if (config.baseBranch !== defaultBranch) throw new Error(`policy base branch ${config.baseBranch} is not ${defaultBranch}`);
-
     const { gh, ledger } = github();
-    // Nothing has been recorded yet, so a refusal leaves the ticket free to be fixed and started again.
-    const refuse = async (reason: string, detail = ""): Promise<never> => {
-      await gh.removeLabel(issueNumber, config.triggerLabel);
-      await gh.create(issueNumber, `The factory did not start this task: ${reason}\n\n${detail}\n\nNothing was recorded, so it can be started again once this is resolved. (${runUrl})`.replace(/\n\n\n+/g, "\n\n"));
-      throw new Error(`not started: ${reason}`);
-    };
 
-    if (!config.approvers.includes(actor)) await refuse(`${actor} is not listed as an approver in .factory/config.json.`);
-    const issue = await gh.getIssue(issueNumber);
-    if (issue.isPullRequest) throw new Error(`#${issueNumber} is a pull request, not a task issue`);
-    if (issue.state !== "open") throw new Error(`task issue #${issueNumber} is ${issue.state}`);
-    const extracted = extractTask(issue.body);
-    if (!extracted.ok) await refuse("the issue does not contain a valid task.", (extracted as { problems: string[] }).problems.map((p) => `- ${p}`).join("\n"));
-    const task = (extracted as { task: Task }).task;
-    if ((await ledger.read(String(issueNumber))).length > 0) {
-      throw new Error(`task #${issueNumber} already has a run; a new attempt needs a new task issue`);
+    // Where the ticket lives decides how it is read and how a refusal is reported. Nothing is
+    // recorded until the ticket passes, so a refusal leaves it free to be fixed and started again.
+    let task: Task;
+    let issueNumber = 0;
+    let jira: { client: Jira; key: string; url: string; status: string } | undefined;
+    let refuse: (reason: string, detail?: string, evaluation?: Evaluation) => Promise<never>;
+
+    if (jiraKey) {
+      if (!isJiraKey(jiraKey)) throw new Error(`'${jiraKey}' is not a Jira ticket key`);
+      if (!config.jira) throw new Error("a Jira ticket was given, but .factory/config.json has no jira section");
+      const jc = config.jira;
+      const client = jiraClient(config);
+      const ticket = await client.getIssue(jiraKey);
+      jira = { client, key: ticket.key, url: ticket.url, status: ticket.status };
+      refuse = async (reason, detail = "", evaluation) => {
+        await client.removeLabel(ticket.key, jc.label);
+        await client.comment(
+          ticket.key,
+          evaluation
+            ? evaluationForJira(evaluation, `The factory did not start this ticket: ${reason} Improve the areas scoring low, then add the label again.`)
+            : adfComment([`The factory did not start this ticket: ${reason}`, detail, "Nothing was recorded, so it can be started again once this is resolved."]),
+        );
+        throw new Error(`not started: ${reason}`);
+      };
+      // The person holding the token that called GitHub must be an approver here too.
+      if (!config.approvers.includes(actor)) await refuse(`the GitHub account that started the run (${actor}) is not listed as an approver in .factory/config.json.`);
+      if (!ticket.labels.includes(jc.label)) throw new Error(`${ticket.key} does not have the '${jc.label}' label`);
+      // Who added the label is read from Jira's own history, not from whoever called.
+      const labeller = labelAddedBy(ticket, jc.label);
+      if (!labeller) await refuse(`Jira's history does not show who added the '${jc.label}' label.`);
+      if (!isJiraApprover(labeller!, jc.approvers)) await refuse(`${labeller!.name || "the person who added the label"} is not listed under jira.approvers in .factory/config.json.`);
+      const extracted = extractTaskFromAdf(ticket.description);
+      if (!extracted.ok) await refuse("the ticket does not contain a valid task.", (extracted as { problems: string[] }).problems.join("; "));
+      task = (extracted as { task: Task }).task;
+      const mirror = (await gh.issuesWithLabel(JIRA_MIRROR_LABEL)).find((i) => i.title.startsWith(`[${ticket.key}] `));
+      if (mirror) await refuse(`this ticket already has a factory run, recorded in GitHub issue #${mirror.number}. A new attempt needs a new ticket.`);
+    } else {
+      issueNumber = Number(env("FACTORY_ISSUE"));
+      if (!Number.isInteger(issueNumber) || issueNumber < 1) throw new Error("the issue number is not valid");
+      refuse = async (reason, detail = "", evaluation) => {
+        await gh.removeLabel(issueNumber, config.triggerLabel);
+        const body = evaluation ? evaluationComment(evaluation, { passed: "", failed: "Improve the areas scoring low, then add the label again." }) : detail;
+        await gh.create(issueNumber, `The factory did not start this task: ${reason}\n\n${body}\n\nNothing was recorded, so it can be started again once this is resolved. (${runUrl})`.replace(/\n\n\n+/g, "\n\n"));
+        throw new Error(`not started: ${reason}`);
+      };
+      if (!config.approvers.includes(actor)) await refuse(`${actor} is not listed as an approver in .factory/config.json.`);
+      const issue = await gh.getIssue(issueNumber);
+      if (issue.isPullRequest) throw new Error(`#${issueNumber} is a pull request, not a task issue`);
+      if (issue.state !== "open") throw new Error(`task issue #${issueNumber} is ${issue.state}`);
+      const extracted = extractTask(issue.body);
+      if (!extracted.ok) await refuse("the issue does not contain a valid task.", (extracted as { problems: string[] }).problems.map((p) => `- ${p}`).join("\n"));
+      task = (extracted as { task: Task }).task;
+      if ((await ledger.read(String(issueNumber))).length > 0) {
+        throw new Error(`task #${issueNumber} already has a run; a new attempt needs a new task issue`);
+      }
     }
 
     const today = new Date().toISOString().slice(0, 10);
@@ -158,15 +219,20 @@ const commands: Record<string, () => Promise<void> | void> = {
     }
     const evaluation = evaluateTicket(task, repository, modelOutput, { minMean: config.evaluation.minScore, minArea: config.evaluation.minAreaScore });
     summary(evaluationComment(evaluation, { passed: "Ticket evaluation passed.", failed: "Ticket evaluation did not pass." }));
-    if (!evaluation.passed) {
-      await refuse(
-        "the ticket evaluation did not pass.",
-        evaluationComment(evaluation, { passed: "", failed: "Improve the areas scoring low, then add the label again." }),
+    if (!evaluation.passed) await refuse("the ticket evaluation did not pass.", "", evaluation);
+
+    if (jira) {
+      // The run's history lives on a GitHub issue. A Jira ticket gets one of its own, created only now that it has passed.
+      issueNumber = await gh.createIssue(
+        `[${jira.key}] ${task.summary ?? task.goal}`.slice(0, 200),
+        `Mirror of Jira ticket ${jira.key}: ${jira.url}\n\nThe factory records this task's run here. The ticket in Jira is the place to discuss it.\n\n${renderTask(task)}`,
+        [JIRA_MIRROR_LABEL],
       );
     }
 
     const admitted: Admitted = {
       issue: issueNumber,
+      ...(jira ? { jira: { key: jira.key, url: jira.url } } : {}),
       task,
       taskDigest: digest(task),
       policyDigest: digest(config),
@@ -174,13 +240,24 @@ const commands: Record<string, () => Promise<void> | void> = {
       ticketScore: evaluation.mean,
     };
     const events = admissionEvents({ actor, taskDigest: admitted.taskDigest, base, runUrl });
-    events[0]!.cause += `; ticket evaluation ${evaluation.mean} of 5`;
+    events[0]!.cause += `; ticket evaluation ${evaluation.mean} of 5${jira ? `; Jira ticket ${jira.key}` : ""}`;
     await record(ledger, String(issueNumber), events);
     await gh.addLabels(issueNumber, [STATUS_LABELS.inProgress]);
+    if (jira) {
+      const moved = await jira.client.moveTo(jira.key, config.jira!.statuses.inProgress, jira.status);
+      await jira.client.comment(
+        jira.key,
+        evaluationForJira(
+          evaluation,
+          `The factory has started work on this ticket.${moved === "unavailable" ? ` It could not move the ticket to "${config.jira!.statuses.inProgress}": the workflow has no such move from "${jira.status}".` : ""} Run: ${runUrl}`,
+        ),
+      );
+    }
     writeFileSync(outFile("task.json"), JSON.stringify(admitted, null, 2));
     output("base", base);
+    output("issue", String(issueNumber));
     output("max_attempts", String(1 + config.repairRounds));
-    summary(`Admitted task #${issueNumber} at base \`${base}\`, started by ${actor}.`);
+    summary(`Admitted ${jira ? `Jira ticket ${jira.key} as task #${issueNumber}` : `task #${issueNumber}`} at base \`${base}\`, started by ${actor}.`);
   },
 
   /**
@@ -435,6 +512,9 @@ const commands: Record<string, () => Promise<void> | void> = {
       if (!candidate || !verdict) {
         await setStatus(STATUS_LABELS.attention);
         await gh.create(admitted.issue, `The factory stopped work on this task after ${attempts.length} attempt(s): ${plan.summary}. (${runUrl})`);
+        if (admitted.jira) {
+          await jiraClient(config).comment(admitted.jira.key, adfComment([`The factory stopped work on this ticket after ${attempts.length} attempt(s) without opening a pull request: ${plan.summary}.`, `Run: ${runUrl}`]));
+        }
         summary(`Run stopped after ${attempts.length} attempt(s): ${plan.summary}.`);
         process.exitCode = 1;
         return;
@@ -444,7 +524,8 @@ const commands: Record<string, () => Promise<void> | void> = {
       const pr = await ensurePullRequest(gh, {
         taskId,
         base: config.baseBranch,
-        title: pullRequestTitle(admitted.task),
+        // The ticket key in the title lets Jira link the pull request to the ticket.
+        title: admitted.jira ? `${admitted.jira.key}: ${pullRequestTitle(admitted.task)}`.slice(0, 120) : pullRequestTitle(admitted.task),
         body: pullRequestBody({
           task: admitted.task,
           issue: admitted.issue,
@@ -466,6 +547,17 @@ const commands: Record<string, () => Promise<void> | void> = {
       ]);
       await setStatus(STATUS_LABELS.review);
       await gh.create(admitted.issue, `The factory opened draft pull request #${pr.number} for this task. It is ready for review. (${runUrl})`);
+      if (admitted.jira && config.jira) {
+        const jira = jiraClient(config);
+        const prUrl = `${process.env.GITHUB_SERVER_URL || "https://github.com"}/${env("GITHUB_REPOSITORY")}/pull/${pr.number}`;
+        let note = "";
+        if (config.jira.statuses.review) {
+          const ticket = await jira.getIssue(admitted.jira.key);
+          const moved = await jira.moveTo(ticket.key, config.jira.statuses.review, ticket.status);
+          if (moved === "unavailable") note = ` It could not move the ticket to "${config.jira.statuses.review}": the workflow has no such move from "${ticket.status}".`;
+        }
+        await jira.comment(admitted.jira.key, adfComment([`The factory opened a draft pull request for this ticket, accepted on attempt ${plan.publishAttempt! + 1}. It is ready for review.${note}`, prUrl]));
+      }
       summary(`Published \`${candidate.commit}\` to \`${pushed.branch}\` as draft pull request #${pr.number}, accepted on attempt ${plan.publishAttempt! + 1}.`);
     } catch (e) {
       // Leave a terminal record so the run is never silently stuck, then fail the job.

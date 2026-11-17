@@ -31,10 +31,14 @@ This describes the current pipeline version. It takes one approved task issue an
        inputs:
          issue:
            description: Number of the task issue to build
-           required: true
            type: string
+           default: ""
+         jira:
+           description: Key of the Jira ticket to build, such as ABC-123
+           type: string
+           default: ""
    concurrency:
-     group: factory-${{ github.event.issue.number || inputs.issue }}
+     group: factory-${{ github.event.issue.number || inputs.issue || inputs.jira }}
      cancel-in-progress: false
    permissions: {}
    jobs:
@@ -45,15 +49,18 @@ This describes the current pipeline version. It takes one approved task issue an
          pull-requests: write
          issues: write
          actions: read
-       uses: amasaun/factory/.github/workflows/run.yml@v0.2.0
+       uses: amasaun/factory/.github/workflows/run.yml@v0.3.0
        with:
          issue: ${{ format('{0}', github.event.issue.number || inputs.issue) }}
+         jira: ${{ inputs.jira }}
        secrets:
          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+         JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+         JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
    ```
 
-   Name a release (`@v0.2.0`), not `@main`: the repository then runs exactly that version of every part of the factory until someone changes the line. Releases are listed on the factory repository's tags page.
+   Name a release (`@v0.3.0`), not `@main`: the repository then runs exactly that version of every part of the factory until someone changes the line. Releases are listed on the factory repository's tags page.
 3. Add one model credential as a repository secret (Settings → Secrets and variables → Actions → Repository secrets):
    - `ANTHROPIC_API_KEY`: an Anthropic API key, billed per use to whoever owns the key; or
    - `CLAUDE_CODE_OAUTH_TOKEN`: a Claude subscription token generated with `claude setup-token`, which counts against that subscription's limits.
@@ -67,6 +74,8 @@ This describes the current pipeline version. It takes one approved task issue an
 1. Write a task issue. Its body carries the task twice: written out for people, and as a data block the factory reads (the marker `<!-- factory-task:v1 -->` followed by one fenced `json` block, schema in `schemas/task.schema.json`). `/factory:spec` in the [Claude Code plugin](plugin.md) writes both from one source.
 2. Have a person review it.
 3. Add the `factory` label to the issue. The run starts at once, whatever state the issue is in.
+
+Tickets can also live in Jira: see [jira.md](jira.md).
 
 Adding the label is the approval. Only a login listed under `approvers` counts, and the task text is fixed at that moment: the run records its digest, and later edits to the issue do not affect the run. A run can also be started by hand from the Actions tab with the issue number; the same checks apply.
 
@@ -170,7 +179,7 @@ On `main`, the factory's workflows refer to each other at `@main`. `scripts/rele
 ## Known limits of this version
 
 - **Approval** is "an approver added the label". A session holding that person's GitHub login could add it too.
-- **The trigger is a GitHub issue label.** Starting from a Jira or Linear ticket is not built yet.
+- **Tickets can live in GitHub issues or in Jira** ([jira.md](jira.md)). The Jira connector has not yet been run against a real Jira site. Linear is not built.
 - **Event log identity** is `github-actions[bot]`, so any workflow in the target repository with permission to comment on issues could write events. A dedicated GitHub App fixes this.
 - **The builder's model credential** is on the same machine as the code the builder writes and the tests it runs.
 - **Workers have unrestricted outbound network access.**

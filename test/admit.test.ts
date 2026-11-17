@@ -141,7 +141,7 @@ test("a ticket that passes is admitted, marked in progress, and its score record
   const admitted = JSON.parse(readFileSync(join(outDir, "task.json"), "utf8"));
   assert.equal(admitted.ticketScore, 5);
   assert.deepEqual(admitted.task, fullTask());
-  assert.match(readFileSync(join(outDir, "gh-output"), "utf8"), /^base=[0-9a-f]{40}\nmax_attempts=2\n$/);
+  assert.match(readFileSync(join(outDir, "gh-output"), "utf8"), /^base=[0-9a-f]{40}\nissue=7\nmax_attempts=2\n$/);
   // The evaluator ran once, with no tools, the configured model, outside the repository, on the ticket.
   const [call] = modelCalls();
   assert.equal(modelCalls().length, 1);
